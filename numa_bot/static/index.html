@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Numa Partners</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
+</head>
+<body class="p-4 pb-20">
+
+    <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+        <div>
+            <h1 class="text-xl font-bold text-indigo-400">Numa Partners</h1>
+            <p id="managerName" class="text-xs text-slate-400">Авторизация...</p>
+        </div>
+        <span id="roleBadge" class="px-2 py-1 text-xs font-semibold rounded bg-indigo-900/50 text-indigo-300 border border-indigo-700/50">Manager</span>
+    </div>
+
+    <div class="flex gap-2 mb-4 overflow-x-auto pb-2">
+        <button onclick="loadLeads('New', 'A')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white whitespace-nowrap">🔥 Tier A (Без сайта)</button>
+        <button onclick="loadLeads('New', 'B')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">Tier B (C сайтом)</button>
+        <button onclick="loadLeads('In_Progress')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600/30 text-amber-300 border border-amber-500/30 whitespace-nowrap">⏳ В работе</button>
+    </div>
+
+    <div id="leadsList" class="space-y-4">
+        <div class="text-center py-8 text-slate-500 text-sm">Загрузка лидов...</div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        const user = tg.initDataUnsafe?.user || { id: 12345678, first_name: "Admin", username: "RAG3QU1T" };
+        let currentUserTgId = user.id;
+
+        document.getElementById("managerName").innerText = `${user.first_name} (@${user.username || 'no_tag'})`;
+
+        async function initAuth() {
+            try {
+                const res = await fetch(`/api/user/check/${currentUserTgId}`);
+                if (!res.ok) {
+                    document.body.innerHTML = `<div class="p-8 text-center text-red-400 font-bold">❌ Доступ ограничен.<br><span class="text-xs text-slate-400 font-normal">Попросите @RAG3QU1T одобрить вашу заявку.</span></div>`;
+                    return;
+                }
+                const userData = await res.json();
+                document.getElementById("roleBadge").innerText = userData.role.toUpperCase();
+                loadLeads('New', 'A');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadLeads(status = 'New', tier = null) {
+            const container = document.getElementById("leadsList");
+            container.innerHTML = `<div class="text-center py-8 text-slate-500 text-sm">Загрузка...</div>`;
+
+            let url = `/api/leads?status=${status}`;
+            if (tier) url += `&tier=${tier}`;
+
+            const res = await fetch(url);
+            const leads = await res.json();
+
+            if (!leads || leads.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-500 text-sm">Лидов в этой категории пока нет ☕️</div>`;
+                return;
+            }
+
+            container.innerHTML = leads.map(lead => `
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-bold px-2 py-0.5 rounded ${lead.tier === 'A' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-blue-950 text-blue-400 border border-blue-800'}">Tier ${lead.tier || 'B'}</span>
+                        <span class="text-xs text-slate-400">${lead.category || ''}</span>
+                    </div>
+
+                    <h3 class="font-bold text-base text-slate-100 mb-1">${lead.company_name}</h3>
+                    <p class="text-xs text-slate-400 mb-3">📍 ${lead.city || 'Москва'} | 📞 <a href="tel:${lead.phone}" class="text-indigo-400 font-mono">${lead.phone}</a></p>
+
+                    <div class="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 mb-3 text-xs">
+                        <p class="text-amber-400/90 font-medium mb-1">💡 Боль: ${lead.pain_points || 'Не указана'}</p>
+                        <p class="text-slate-300 italic">" ${lead.ai_offer || 'Нет предложения'} "</p>
+                    </div>
+
+                    <div class="flex gap-2 mb-3">
+                        ${lead.web_url ? `<a href="${lead.web_url}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-slate-800 text-slate-300 rounded-lg border border-slate-700">🌐 Сайт</a>` : ''}
+                        ${lead.tg_acc ? `<a href="${lead.tg_acc}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-sky-900/40 text-sky-300 rounded-lg border border-sky-700/50">💬 Telegram</a>` : ''}
+                        <a href="${lead.yandex_url}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-red-950/40 text-red-300 rounded-lg border border-red-800/50">🗺 Карта</a>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">
+                        <button onclick="changeStatus(${lead.Id}, 'In_Progress')" class="py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white">🎯 Взять в работу</button>
+                        <button onclick="changeStatus(${lead.Id}, 'Won')" class="py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white">🎉 Сделка</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function changeStatus(leadId, newStatus) {
+            await fetch('/api/leads/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lead_id: leadId,
+                    status: newStatus,
+                    manager_tg_id: currentUserTgId
+                })
+            });
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            loadLeads('New', 'A');
+        }
+
+        initAuth();
+    </script>
+</body>
+</html>

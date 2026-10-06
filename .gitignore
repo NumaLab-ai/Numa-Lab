@@ -1,0 +1,10 @@
+/*
+!/.gitignore
+!/numa_bot/
+!/nova_scraper/
+.env
+venv/
+__pycache__/
+*.pyc
+*.log
+*.save
