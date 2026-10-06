@@ -170,8 +170,12 @@ async def update_lead(data: LeadStatusUpdate):
 
 
 async def start_bot():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info("Bot polling started")
+        await dp.start_polling(bot)
+    except Exception:
+        logging.exception("BOT POLLING FAILED")
 
 
 @fastapi_app.on_event("startup")
