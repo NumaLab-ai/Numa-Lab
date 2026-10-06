@@ -47,8 +47,7 @@ async def start_handler(message: types.Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🚀 Открыть Numa Partners Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app"))
         ]])
-        await message.answer(f"👋 Приветствую, Владелец Numa Studio (@{ADMIN_USERNAME})!
-Доступ администратора активирован.", reply_markup=kb)
+        await message.answer(f"👋 Приветствую, Владелец Numa Studio (@{ADMIN_USERNAME})!\nДоступ администратора активирован.", reply_markup=kb)
         return
 
     if user:
