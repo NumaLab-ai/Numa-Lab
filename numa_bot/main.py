@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from dotenv import load_dotenv
+from aiogram.client.session.aiohttp import AiohttpSession
 
 import nocodb
 
@@ -18,10 +19,11 @@ load_dotenv(override=True)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "RAG3QU1T").lstrip("@")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "http://100.94.236.55:8000")
+TG_PROXY = os.getenv("TG_PROXY") or None
 
 STATE = {"admin_id": int(os.getenv("ADMIN_TG_ID", "0") or 0)}
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN, session=AiohttpSession(proxy=TG_PROXY))
 dp = Dispatcher()
 fastapi_app = FastAPI(title="Numa Partners API")
 
@@ -173,7 +175,7 @@ async def start_bot():
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info("Bot polling started")
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, handle_signals=False)
     except Exception:
         logging.exception("BOT POLLING FAILED")
 
