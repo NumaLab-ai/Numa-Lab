@@ -18,10 +18,11 @@ load_dotenv(override=True)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "RAG3QU1T").lstrip("@")
+ADMIN_USERNAMES = {u.strip().lstrip("@").lower() for u in os.getenv("ADMIN_USERNAMES", "RAG3QU1T,numa_ceo").split(",") if u.strip()}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "http://100.94.236.55:8000")
 TG_PROXY = os.getenv("TG_PROXY") or None
 
-STATE = {"admin_id": int(os.getenv("ADMIN_TG_ID", "0") or 0)}
+STATE = {"admin_ids": set()}
 
 bot = Bot(token=BOT_TOKEN, session=AiohttpSession(proxy=TG_PROXY))
 dp = Dispatcher()
@@ -34,7 +35,7 @@ except Exception:
 
 
 def is_admin(tg_user: types.User) -> bool:
-    return (tg_user.username or "").lower() == ADMIN_USERNAME.lower()
+    return (tg_user.username or "").lower() in ADMIN_USERNAMES
 
 
 def approve_keyboard(tg_id: int) -> InlineKeyboardMarkup:
@@ -58,14 +59,16 @@ async def start_handler(message: types.Message):
         user = None
 
     if is_admin(message.from_user):
-        STATE["admin_id"] = tg_id
+        STATE["admin_ids"].add(tg_id)
         if not user:
             nocodb.create_user_request(tg_id, username, full_name, role="admin", status="approved")
+        elif user.get("status") != "approved":
+            nocodb.update_user_status(user["Id"], "approved")
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🚀 Открыть Numa Partners Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app"))
         ]])
         await message.answer(
-            f"👋 Приветствую, Владелец Numa Studio (@{ADMIN_USERNAME})!\nДоступ администратора активирован.",
+            f"👋 Приветствую, Администратор Numa Studio (@{username})!\nДоступ администратора активирован.",
             reply_markup=kb,
         )
         return
@@ -87,18 +90,18 @@ async def start_handler(message: types.Message):
         f"🛎 Ваша заявка отправлена на подтверждение администратору (@{ADMIN_USERNAME}). Ожидайте авторизации!"
     )
 
-    admin_id = STATE["admin_id"]
-    if admin_id:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"🛎 Новая заявка менеджера:\n{full_name} (@{username or 'без username'})\nID: {tg_id}",
-                reply_markup=approve_keyboard(tg_id),
-            )
-        except Exception as e:
-            print(f"[Admin Notify Error] {e}")
-    else:
-        print("[WARN] ADMIN_TG_ID не задан: админ не получит уведомление. Отправьте /start с аккаунта админа.")
+    for admin_id in list(STATE["admin_ids"]):
+        if admin_id:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🛎 Новая заявка менеджера:\n{full_name} (@{username or 'без username'})\nID: {tg_id}",
+                    reply_markup=approve_keyboard(tg_id),
+                )
+            except Exception as e:
+                print(f"[Admin Notify Error] {e}")
+        else:
+            print("[WARN] ADMIN_TG_ID не задан: админ не получит уведомление. Отправьте /start с аккаунта админа.")
 
 
 @dp.callback_query(F.data.startswith("approve_"))
