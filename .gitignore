@@ -2,6 +2,8 @@
 !/.gitignore
 !/numa_bot/
 !/nova_scraper/
+state.json
+rejected.json
 .env
 venv/
 __pycache__/
