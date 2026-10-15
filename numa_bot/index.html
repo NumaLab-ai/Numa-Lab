@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Numa Partners</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .chip-on { background:#4f46e5; color:#fff; border-color:#6366f1; }
+        .chip-off { background:#1e293b; color:#cbd5e1; border-color:#334155; }
+        input, textarea { background:#0b1220; border:1px solid #334155; color:#f8fafc; border-radius:.5rem; padding:.5rem .6rem; width:100%; font-size:14px; }
+        input:focus, textarea:focus { outline:none; border-color:#6366f1; }
+    </style>
+</head>
+<body class="pb-24">
+
+<header class="sticky top-0 z-20 bg-slate-900/95 backdrop-blur px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div>
+        <h1 class="text-lg font-bold text-indigo-400 leading-tight">Numa Partners</h1>
+        <p id="who" class="text-xs text-slate-400">Авторизация...</p>
+    </div>
+    <div class="text-right">
+        <span id="role" class="px-2 py-0.5 text-[11px] font-semibold rounded bg-indigo-900/50 text-indigo-300 border border-indigo-700/50"></span>
+        <p id="myPercent" class="text-[11px] text-slate-400 mt-1"></p>
+    </div>
+</header>
+
+<main id="view" class="px-4 pt-4"></main>
+<nav id="tabs" class="fixed bottom-0 inset-x-0 z-20 bg-slate-900 border-t border-slate-800 flex"></nav>
+
+<div id="modal" class="hidden fixed inset-0 z-30 bg-black/70 flex items-end sm:items-center justify-center p-3">
+    <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <h3 id="mTitle" class="font-bold text-slate-100"></h3>
+        <p id="mCompany" class="text-xs text-slate-400"></p>
+        <div id="mAmountBox" class="hidden">
+            <label class="text-xs text-slate-400">Сумма сделки, ₽</label>
+            <input id="mAmount" type="text" inputmode="decimal" placeholder="Например 50000">
+        </div>
+        <div>
+            <label class="text-xs text-slate-400">Комментарий (необязательно)</label>
+            <textarea id="mComment" rows="3" maxlength="500"></textarea>
+        </div>
+        <p id="mError" class="text-xs text-red-400 hidden"></p>
+        <div class="grid grid-cols-2 gap-2">
+            <button data-act="modal-cancel" class="py-2 text-sm rounded-lg bg-slate-800 text-slate-300 border border-slate-700">Отмена</button>
+            <button id="mOk" data-act="modal-ok" class="py-2 text-sm font-bold rounded-lg bg-indigo-600 text-white">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="hidden fixed top-16 inset-x-0 z-40 flex justify-center px-4 pointer-events-none">
+    <div id="toastText" class="bg-slate-800 border border-slate-600 text-sm rounded-lg px-3 py-2 shadow-lg"></div>
+</div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+
+// ---------- утилиты ----------
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const money = n => Math.round(num(n)).toLocaleString('ru-RU') + ' ₽';
+const pct = n => (Math.round(num(n) * 100) / 100) + '%';
+const safeUrl = u => /^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '';
+const tgLink = v => { v = String(v || '').trim(); if (/^https?:\/\//i.test(v)) return v; v = v.replace(/^@/, ''); return /^[A-Za-z0-9_]{3,}$/.test(v) ? 'https://t.me/' + v : ''; };
+const telHref = p => 'tel:' + String(p || '').replace(/[^\d+]/g, '');
+const $ = id => document.getElementById(id);
+const view = $('view');
+
+function toast(text) {
+    $('toastText').textContent = text;
+    $('toast').classList.remove('hidden');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => $('toast').classList.add('hidden'), 2200);
+}
+function haptic(kind = 'success') { try { tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
+function ask(text) {
+    return new Promise(res => {
+        if (tg.showConfirm) tg.showConfirm(text, ok => res(!!ok));
+        else res(window.confirm(text));
+    });
+}
+
+async function api(path, opts = {}) {
+    const res = await fetch(path, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg.initData || '', ...(opts.headers || {}) },
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) {
+        const d = data && data.detail;
+        const err = new Error(typeof d === 'string' ? d : 'Ошибка ' + res.status);
+        err.status = res.status;
+        throw err;
+    }
+    return data;
+}
+
+function fatal(html) {
+    document.body.innerHTML = `<div class="p-8 text-center text-red-400 font-bold">${html}</div>`;
+}
+const DENIED = {
+    not_registered: '❌ Вы не зарегистрированы.<br><span class="text-xs text-slate-400 font-normal">Нажмите /start в боте, чтобы отправить заявку.</span>',
+    pending: '⏳ Заявка на рассмотрении.<br><span class="text-xs text-slate-400 font-normal">Администратор скоро её проверит.</span>',
+    rejected: '❌ Заявка отклонена.',
+    banned: '⛔ Доступ закрыт администратором.',
+};
+
+// ---------- состояние ----------
+let me = null, tab = 'leads', poolTier = 'A', mineStatus = 'In_Progress', period = 'all', admin = null, token = 0;
+const leadsById = {};
+
+const STATUS_LABEL = { New: 'Новые', In_Progress: 'В работе', Postponed: 'Отложено', Lost: 'Отказ', Won: 'Сделки' };
+const USER_LABEL = {
+    approved: ['Активен', 'bg-emerald-950 text-emerald-400 border-emerald-800'],
+    pending: ['Ожидает', 'bg-amber-950 text-amber-400 border-amber-800'],
+    rejected: ['Отклонён', 'bg-slate-800 text-slate-400 border-slate-600'],
+    banned: ['Забанен', 'bg-red-950 text-red-400 border-red-800'],
+};
+
+function chips(items, active, group) {
+    return `<div class="flex gap-2 mb-4 overflow-x-auto pb-1">` + items.map(([v, label]) =>
+        `<button data-act="chip" data-group="${group}" data-v="${esc(v)}" class="px-3 py-1.5 text-xs font-medium rounded-lg border whitespace-nowrap ${v === active ? 'chip-on' : 'chip-off'}">${esc(label)}</button>`
+    ).join('') + `</div>`;
+}
+const PERIODS = [['week', 'Неделя'], ['month', 'Месяц'], ['all', 'Всё время']];
+const loading = () => `<div class="text-center py-8 text-slate-500 text-sm">Загрузка...</div>`;
+const empty = t => `<div class="text-center py-8 text-slate-500 text-sm">${t}</div>`;
+
+function tile(label, value, accent = '') {
+    return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-3 ${accent}">
+        <p class="text-[11px] text-slate-400">${esc(label)}</p><p class="text-lg font-bold mt-0.5">${value}</p></div>`;
+}
+function bar(value, max, color = 'bg-indigo-500') {
+    const w = max > 0 ? Math.max(2, Math.round(100 * value / max)) : 0;
+    return `<div class="h-1.5 rounded bg-slate-800 overflow-hidden"><div class="h-full ${color}" style="width:${w}%"></div></div>`;
+}
+
+// ---------- карточка лида ----------
+function leadCard(l, mode) {
+    leadsById[l.Id] = l;
+    const links = [];
+    if (safeUrl(l.web_url)) links.push(`<a href="${esc(safeUrl(l.web_url))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-slate-800 text-slate-300 rounded-lg border border-slate-700">🌐 Сайт</a>`);
+    if (tgLink(l.tg_acc)) links.push(`<a href="${esc(tgLink(l.tg_acc))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-sky-900/40 text-sky-300 rounded-lg border border-sky-700/50">💬 Telegram</a>`);
+    if (safeUrl(l.yandex_url)) links.push(`<a href="${esc(safeUrl(l.yandex_url))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-red-950/40 text-red-300 rounded-lg border border-red-800/50">🗺 Карта</a>`);
+
+    const btn = (act, label, cls) => `<button data-act="${act}" data-id="${l.Id}" class="py-2 text-xs font-bold rounded-lg ${cls}">${label}</button>`;
+    let actions = '', extra = '';
+    if (mode === 'pool') {
+        actions = btn('take', '🎯 Взять в работу', 'bg-indigo-600 text-white') + btn('won', '🎉 Сделка', 'bg-emerald-600 text-white');
+    } else if (l.status === 'In_Progress') {
+        actions = btn('won', '🎉 Сделка', 'bg-emerald-600 text-white') + btn('postpone', '⏸ Отложить', 'bg-amber-600/30 text-amber-300 border border-amber-500/30') + btn('lost', '✖ Отказ', 'bg-slate-800 text-slate-300 border border-slate-700');
+    } else if (l.status === 'Postponed') {
+        actions = btn('resume', '▶️ В работу', 'bg-indigo-600 text-white') + btn('lost', '✖ Отказ', 'bg-slate-800 text-slate-300 border border-slate-700');
+    } else if (l.status === 'Lost') {
+        actions = btn('resume', '↩ Вернуть в работу', 'bg-indigo-600 text-white');
+    } else if (l.status === 'Won') {
+        const p = (l.manager_percent !== null && l.manager_percent !== '' && l.manager_percent !== undefined) ? num(l.manager_percent) : num(me.percent);
+        if (l.deal_amount !== null && l.deal_amount !== '' && l.deal_amount !== undefined) {
+            extra = `<div class="grid grid-cols-3 gap-2 mb-3 text-center">
+                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Сумма</p><p class="text-sm font-bold">${money(l.deal_amount)}</p></div>
+                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Процент</p><p class="text-sm font-bold">${pct(p)}</p></div>
+                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Выплата</p><p class="text-sm font-bold text-emerald-400">${money(num(l.deal_amount) * p / 100)}</p></div></div>`;
+            actions = btn('amount', '✏️ Изменить сумму', 'bg-slate-800 text-slate-300 border border-slate-700 col-span-2');
+        } else {
+            extra = `<p class="text-xs text-amber-400 mb-3">⚠️ Сумма сделки не указана — она не попадёт в статистику.</p>`;
+            actions = btn('amount', '💰 Указать сумму', 'bg-emerald-600 text-white col-span-2');
+        }
+    }
+    return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg">
+        <div class="flex justify-between items-start mb-2">
+            <span class="text-xs font-bold px-2 py-0.5 rounded ${l.tier === 'A' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-blue-950 text-blue-400 border border-blue-800'}">Tier ${esc(l.tier || 'B')}</span>
+            <span class="text-xs text-slate-400">${esc(l.category)}</span>
+        </div>
+        <h3 class="font-bold text-base text-slate-100 mb-1">${esc(l.company_name)}</h3>
+        <p class="text-xs text-slate-400 mb-3">📍 ${esc(l.city || 'Москва')} | 📞 <a href="${esc(telHref(l.phone))}" class="text-indigo-400 font-mono">${esc(l.phone)}</a></p>
+        <div class="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 mb-3 text-xs">
+            <p class="text-amber-400/90 font-medium mb-1">💡 Боль: ${esc(l.pain_points || 'Не указана')}</p>
+            <p class="text-slate-300 italic">" ${esc(l.ai_offer || 'Нет предложения')} "</p>
+        </div>
+        ${l.last_comment ? `<p class="text-xs text-slate-300 mb-3">📝 ${esc(l.last_comment)}</p>` : ''}
+        ${extra}
+        ${links.length ? `<div class="flex gap-2 mb-3">${links.join('')}</div>` : ''}
+        ${actions ? `<div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">${actions}</div>` : ''}
+    </div>`;
+}
+
+// ---------- экраны ----------
+async function renderLeads(tk) {
+    const head = chips([['A', '🔥 Tier A (без сайта)'], ['B', 'Tier B (с сайтом)'], ['C', 'Tier C']], poolTier, 'pool');
+    view.innerHTML = head + loading();
+    const leads = await api(`/api/leads?scope=pool&tier=${poolTier}`);
+    if (tk !== token) return;
+    view.innerHTML = head + (leads.length ? `<div class="space-y-4">${leads.map(l => leadCard(l, 'pool')).join('')}</div>` : empty('Свободных лидов в этой категории нет ☕️'));
+}
+
+async function renderMine(tk) {
+    const head = chips([['In_Progress', '⏳ В работе'], ['Postponed', '⏸ Отложено'], ['Won', '🎉 Сделки'], ['Lost', '✖ Отказы']], mineStatus, 'mine');
+    view.innerHTML = head + loading();
+    const leads = await api(`/api/leads?scope=mine&status=${mineStatus}`);
+    if (tk !== token) return;
+    view.innerHTML = head + (leads.length ? `<div class="space-y-4">${leads.map(l => leadCard(l, 'mine')).join('')}</div>` : empty('Здесь пока пусто'));
+}
+
+async function renderCabinet(tk) {
+    const head = chips(PERIODS, period, 'period');
+    view.innerHTML = head + loading();
+    const d = await api(`/api/me?period=${period}`);
+    if (tk !== token) return;
+    const s = d.stats || {};
+    view.innerHTML = head + `
+        <div class="bg-gradient-to-br from-indigo-600/30 to-slate-900 border border-indigo-700/40 rounded-2xl p-4 mb-4">
+            <p class="text-xs text-slate-300">Ваш процент с продаж</p>
+            <p class="text-4xl font-extrabold text-indigo-300 mt-1">${pct(d.percent)}</p>
+            <p class="text-xs text-slate-400 mt-2">Заработано за период: <span class="text-emerald-400 font-bold">${money(s.payout)}</span></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+            ${tile('Сумма ваших сделок', money(s.revenue))}
+            ${tile('Оплаченных сделок', num(s.paid_deals))}
+            ${tile('Взято лидов', num(s.taken))}
+            ${tile('Конверсия', num(s.conversion) + '%')}
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
+            <p class="text-slate-400 mb-1">Ваши лиды (всё время)</p>
+            <p class="flex justify-between"><span>⏳ В работе</span><b>${num(s.in_progress)}</b></p>
+            <p class="flex justify-between"><span>⏸ Отложено</span><b>${num(s.postponed)}</b></p>
+            <p class="flex justify-between"><span>🎉 Сделки</span><b>${num(s.won)}</b></p>
+            <p class="flex justify-between"><span>✖ Отказы</span><b>${num(s.lost)}</b></p>
+        </div>
+        ${num(s.pending_amount) ? `<p class="text-xs text-amber-400 mt-3">⚠️ Сделок без суммы: ${num(s.pending_amount)}. Укажите сумму во вкладке «Мои → Сделки».</p>` : ''}`;
+}
+
+async function loadAdmin() {
+    admin = await api(`/api/admin/stats?period=${period}`);
+    const pending = admin.managers.filter(m => m.status === 'pending').length;
+    const badge = $('mgrBadge');
+    if (badge) { badge.textContent = pending; badge.classList.toggle('hidden', !pending); }
+}
+
+async function renderStats(tk) {
+    const head = chips(PERIODS, period, 'period');
+    view.innerHTML = head + loading();
+    await loadAdmin();
+    if (tk !== token) return;
+    const t = admin.totals;
+    const statuses = ['New', 'In_Progress', 'Postponed', 'Lost', 'Won'];
+    const maxS = Math.max(1, ...statuses.map(s => num(t.by_status[s])));
+    const ranked = admin.managers.filter(m => m.revenue > 0 || m.taken > 0);
+    const maxRev = Math.max(1, ...ranked.map(m => m.revenue));
+    view.innerHTML = head + `
+        <div class="grid grid-cols-2 gap-3 mb-3">
+            ${tile('Выручка (сумма сделок)', money(t.revenue))}
+            ${tile('Выплаты менеджерам', money(t.payout))}
+            ${tile('Чистый доход компании', money(t.net), 'col-span-2 border-emerald-700/50 bg-emerald-950/20')}
+            ${tile('Оплаченных сделок', num(t.paid_deals))}
+            ${tile('Конверсия', num(t.conversion) + '%')}
+        </div>
+        ${num(t.pending_amount) ? `<p class="text-xs text-amber-400 mb-3">⚠️ Сделок без суммы: ${num(t.pending_amount)} — они не входят в выручку.</p>` : ''}
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3">
+            <p class="text-xs text-slate-400 mb-2">Пул свободных лидов</p>
+            <div class="grid grid-cols-3 gap-2 text-center">
+                ${['A', 'B', 'C'].map(k => `<div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Tier ${k}</p><p class="text-lg font-bold">${num((t.pool_by_tier || {})[k])}</p></div>`).join('')}
+            </div>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3 space-y-2">
+            <p class="text-xs text-slate-400">Воронка (всё время)</p>
+            ${statuses.map(s => `<div><div class="flex justify-between text-xs mb-1"><span>${STATUS_LABEL[s]}</span><b>${num(t.by_status[s])}</b></div>${bar(num(t.by_status[s]), maxS, s === 'Won' ? 'bg-emerald-500' : 'bg-indigo-500')}</div>`).join('')}
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-3">
+            <p class="text-xs text-slate-400">Рейтинг менеджеров</p>
+            ${ranked.length ? ranked.map(m => `<div>
+                <div class="flex justify-between text-sm"><span class="font-semibold">${esc(m.name)}</span><span class="font-bold">${money(m.revenue)}</span></div>
+                ${bar(m.revenue, maxRev, 'bg-emerald-500')}
+                <p class="text-[11px] text-slate-400 mt-1">Чистыми компании: <span class="text-emerald-400">${money(m.net)}</span> · выплата ${money(m.payout)} (${pct(m.percent)}) · сделок ${m.paid_deals} · конверсия ${m.conversion}%</p>
+            </div>`).join('') : empty('Пока нет данных')}
+        </div>`;
+}
+
+async function renderManagers(tk) {
+    view.innerHTML = loading();
+    await loadAdmin();
+    if (tk !== token) return;
+    const order = { pending: 0, approved: 1, rejected: 2, banned: 3 };
+    const list = [...admin.managers].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.revenue - a.revenue);
+    const adminSet = new Set((admin.admin_usernames || []).map(x => x.toLowerCase()));
+    view.innerHTML = `<p class="text-xs text-slate-400 mb-3">Зарегистрировано: ${list.length}</p><div class="space-y-3">` + list.map(m => {
+        const isAdm = m.role === 'admin' || adminSet.has((m.username || '').toLowerCase());
+        const [label, cls] = isAdm ? ['Админ', 'bg-indigo-950 text-indigo-300 border-indigo-800'] : (USER_LABEL[m.status] || [m.status, 'bg-slate-800 text-slate-400 border-slate-600']);
+        const b = (st, text, c) => `<button data-act="user-status" data-tg="${esc(m.tg_id)}" data-st="${st}" class="py-2 text-xs font-bold rounded-lg ${c}">${text}</button>`;
+        let controls = '';
+        if (!isAdm) {
+            if (m.status === 'pending') controls = b('approved', '✅ Одобрить', 'bg-emerald-600 text-white') + b('rejected', '❌ Отклонить', 'bg-slate-800 text-slate-300 border border-slate-700');
+            else if (m.status === 'approved') controls = b('banned', '⛔ Забанить', 'bg-red-900/60 text-red-200 border border-red-700/60 col-span-2');
+            else if (m.status === 'rejected') controls = b('approved', '✅ Одобрить', 'bg-emerald-600 text-white') + b('banned', '⛔ Забанить', 'bg-red-900/60 text-red-200 border border-red-700/60');
+            else controls = b('approved', '♻️ Разбанить', 'bg-emerald-600 text-white col-span-2');
+        }
+        const percentBox = (!isAdm && m.status === 'approved') ? `
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-xs text-slate-400 whitespace-nowrap">Процент:</span>
+                <input id="pct-${esc(m.tg_id)}" type="text" inputmode="decimal" value="${num(m.percent)}" class="!w-20 text-center">
+                <button data-act="user-percent" data-tg="${esc(m.tg_id)}" class="px-3 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white">Сохранить</button>
+            </div>` : '';
+        return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+            <div class="flex justify-between items-start mb-1">
+                <div><p class="font-bold text-sm">${esc(m.name)}</p><p class="text-xs text-slate-400">${m.username ? '@' + esc(m.username) : 'без username'} · ID ${esc(m.tg_id)}</p></div>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded border ${cls}">${esc(label)}</span>
+            </div>
+            ${(m.taken || m.revenue) ? `<p class="text-[11px] text-slate-400 mb-3">В работе ${m.in_progress} · сделок ${m.won} · выручка ${money(m.revenue)} · чистыми ${money(m.net)}</p>` : '<div class="mb-2"></div>'}
+            ${percentBox}
+            ${controls ? `<div class="grid grid-cols-2 gap-2">${controls}</div>` : ''}
+        </div>`;
+    }).join('') + `</div>`;
+}
+
+// ---------- вкладки ----------
+function buildTabs() {
+    const items = [['leads', '🔥', 'Лиды'], ['mine', '📋', 'Мои']];
+    if (me.is_admin) items.push(['stats', '📊', 'Статистика'], ['mgr', '👥', 'Менеджеры']);
+    else items.push(['cab', '💼', 'Кабинет']);
+    $('tabs').innerHTML = items.map(([id, icon, label]) =>
+        `<button data-act="tab" data-v="${id}" class="relative flex-1 py-2 text-[11px] ${id === tab ? 'text-indigo-300' : 'text-slate-400'}">
+            <div class="text-lg leading-none">${icon}</div>${label}
+            ${id === 'mgr' ? '<span id="mgrBadge" class="hidden absolute top-1 right-[22%] min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] leading-4"></span>' : ''}
+        </button>`).join('');
+    if (admin) {
+        const pending = admin.managers.filter(m => m.status === 'pending').length;
+        const badge = $('mgrBadge');
+        if (badge && pending) { badge.textContent = pending; badge.classList.remove('hidden'); }
+    }
+}
+
+const RENDERERS = { leads: renderLeads, mine: renderMine, cab: renderCabinet, stats: renderStats, mgr: renderManagers };
+
+async function render() {
+    const tk = ++token;
+    buildTabs();
+    try {
+        await RENDERERS[tab](tk);
+    } catch (e) {
+        if (tk !== token) return;
+        if (e.status === 401 || e.status === 403) return fatal(DENIED[e.message] || esc(e.message));
+        view.innerHTML = `<div class="text-center py-8 text-red-400 text-sm">${esc(e.message)}<br><button data-act="retry" class="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200">Повторить</button></div>`;
+    }
+}
+
+// ---------- модальное окно сделки / комментария ----------
+let modal = null;
+function openModal(opts) {
+    modal = opts;
+    $('mTitle').textContent = opts.title;
+    $('mCompany').textContent = opts.company || '';
+    $('mAmountBox').classList.toggle('hidden', !opts.needAmount);
+    $('mAmount').value = opts.amount || '';
+    $('mComment').value = '';
+    $('mError').classList.add('hidden');
+    $('modal').classList.remove('hidden');
+}
+function closeModal() { $('modal').classList.add('hidden'); modal = null; }
+
+async function sendUpdate(body) {
+    await api('/api/leads/update', { method: 'POST', body: JSON.stringify(body) });
+    haptic('success');
+}
+
+async function submitModal() {
+    if (!modal) return;
+    const body = { lead_id: modal.id, status: modal.status, comment: $('mComment').value.trim() || null };
+    if (modal.needAmount) {
+        const amount = $('mAmount').value.trim();
+        if (!amount) { $('mError').textContent = 'Укажите сумму сделки'; $('mError').classList.remove('hidden'); return; }
+        body.deal_amount = amount;
+    }
+    $('mOk').disabled = true;
+    try {
+        await sendUpdate(body);
+        closeModal();
+        toast('Сохранено');
+        render();
+    } catch (e) {
+        $('mError').textContent = e.message;
+        $('mError').classList.remove('hidden');
+    } finally {
+        $('mOk').disabled = false;
+    }
+}
+
+// ---------- обработка кликов ----------
+document.addEventListener('click', async ev => {
+    const el = ev.target.closest('[data-act]');
+    if (!el) return;
+    const act = el.dataset.act, id = Number(el.dataset.id);
+    const lead = leadsById[id] || {};
+
+    try {
+        switch (act) {
+            case 'tab': tab = el.dataset.v; render(); break;
+            case 'retry': render(); break;
+            case 'chip': {
+                const g = el.dataset.group, v = el.dataset.v;
+                if (g === 'pool') poolTier = v; else if (g === 'mine') mineStatus = v; else period = v;
+                render(); break;
+            }
+            case 'take': await sendUpdate({ lead_id: id, status: 'In_Progress' }); toast('Лид взят в работу'); render(); break;
+            case 'resume': await sendUpdate({ lead_id: id, status: 'In_Progress' }); toast('Лид снова в работе'); render(); break;
+            case 'won': openModal({ id, status: 'Won', needAmount: true, title: '🎉 Сделка', company: lead.company_name }); break;
+            case 'amount': openModal({ id, status: 'Won', needAmount: true, amount: lead.deal_amount || '', title: '💰 Сумма сделки', company: lead.company_name }); break;
+            case 'postpone': openModal({ id, status: 'Postponed', title: '⏸ Отложить лид', company: lead.company_name }); break;
+            case 'lost': openModal({ id, status: 'Lost', title: '✖ Отказ', company: lead.company_name }); break;
+            case 'modal-cancel': closeModal(); break;
+            case 'modal-ok': await submitModal(); break;
+            case 'user-status': {
+                const st = el.dataset.st;
+                if (st === 'banned' && !(await ask('Забанить пользователя? Он потеряет доступ.'))) break;
+                await api('/api/admin/users/status', { method: 'POST', body: JSON.stringify({ tg_id: Number(el.dataset.tg), status: st }) });
+                haptic('success'); toast('Готово'); render(); break;
+            }
+            case 'user-percent': {
+                const value = $('pct-' + el.dataset.tg).value;
+                const r = await api('/api/admin/users/percent', { method: 'POST', body: JSON.stringify({ tg_id: Number(el.dataset.tg), percent: value }) });
+                haptic('success'); toast('Процент сохранён: ' + r.percent + '%'); break;
+            }
+        }
+    } catch (e) {
+        haptic('error');
+        toast(e.message);
+    }
+});
+
+// ---------- старт ----------
+async function init() {
+    if (!tg.initData) return fatal('Откройте приложение через бота в Telegram');
+    try {
+        me = await api('/api/me');
+    } catch (e) {
+        return fatal(e.status === 401 ? esc(e.message) : (DENIED[e.message] || esc(e.message)));
+    }
+    $('who').textContent = `${me.name}${me.username ? ' (@' + me.username + ')' : ''}`;
+    $('role').textContent = me.is_admin ? 'ADMIN' : 'MANAGER';
+    $('myPercent').textContent = me.is_admin ? '' : `Ваш процент: ${pct(me.percent)}`;
+    render();
+    if (me.is_admin) loadAdmin().then(buildTabs).catch(() => {});
+}
+init();
+</script>
+</body>
+</html>
