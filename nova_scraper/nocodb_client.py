@@ -77,3 +77,16 @@ def send_lead_to_nocodb(lead_data: dict) -> bool:
             print(f"[NocoDB Exception] {e}")
         time.sleep(2 * (attempt + 1))
     return False
+
+
+def count_new_leads():
+    """Сколько лидов со статусом New (свободный пул). None, если база не ответила."""
+    url = f"{NOCODB_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records"
+    try:
+        resp = requests.get(url, headers=_headers(), params={"where": "(status,eq,New)", "limit": 1, "fields": "Id"}, timeout=15)
+        if resp.status_code == 200:
+            total = (resp.json().get("pageInfo") or {}).get("totalRows")
+            return int(total) if total is not None else None
+    except (requests.RequestException, ValueError):
+        pass
+    return None

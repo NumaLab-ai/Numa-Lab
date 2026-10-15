@@ -12,6 +12,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 TIERS = ("A", "B", "C", "D")
 RETRY_DELAYS = (2, 6, 15)
+LAST_FATAL = False  # True, если DeepSeek отклонил ключ или баланс (повторы бессмысленны)
 
 
 def build_prompt(lead: dict) -> str:
@@ -71,8 +72,10 @@ def apply_result(lead: dict, data: dict):
 
 def qualify_lead_with_ai(lead: dict):
     """Возвращает лид с тиром или None, если ИИ не ответил (такой лид не сохраняем, попробуем в следующий раз)."""
+    global LAST_FATAL
     if not DEEPSEEK_API_KEY:
         print("[AI] DEEPSEEK_API_KEY не задан")
+        LAST_FATAL = True
         return None
 
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
@@ -97,6 +100,7 @@ def qualify_lead_with_ai(lead: dict):
                 print("[AI] Некорректный ответ модели")
             elif resp.status_code in (401, 402, 403):
                 print(f"[AI] Ошибка доступа/баланса DeepSeek ({resp.status_code}): {resp.text[:120]}")
+                LAST_FATAL = True
                 return None  # повторы бессмысленны
             else:
                 print(f"[AI] Код {resp.status_code}")

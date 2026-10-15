@@ -1,9 +1,8 @@
 #!/bin/bash
+# Автономный запуск парсера лидов. Ставится в cron каждые несколько часов:
+# парсер сам решает, нужен ли поиск (смотрит на число свободных лидов в базе).
 
-# Переходим в директорию проекта
-cd /mnt/ssd_data/nova_scraper
-
-# Активируем виртуальное окружение Python
+cd /mnt/ssd_data/nova_scraper || exit 1
 source venv/bin/activate
 
 # Простая ротация лога: больше 5 МБ -> старый лог переезжает в pipeline.log.1
@@ -11,7 +10,12 @@ if [ -f pipeline.log ] && [ "$(stat -c%s pipeline.log)" -gt 5242880 ]; then
     mv -f pipeline.log pipeline.log.1
 fi
 
-# Запускаем пайплайн и логируем вывод с меткой времени
-echo "=== [$(date)] Автоматический запуск пайплайна ===" >> pipeline.log
-python main.py >> pipeline.log 2>&1
-echo "=== [$(date)] Запуск завершен ===" >> pipeline.log
+# flock: второй запуск не стартует, пока идёт первый.
+# timeout: зависший запуск принудительно снимается через 3 часа.
+# nice: парсер не отнимает процессор у бота и NocoDB.
+{
+    echo "=== [$(date)] Запуск пайплайна ==="
+    flock -n 9 || { echo "Предыдущий запуск ещё идёт, пропускаю."; exit 0; }
+    nice -n 10 timeout 3h python main.py
+    echo "=== [$(date)] Запуск завершён (код $?) ==="
+} 9>/tmp/numa_pipeline.lock >> pipeline.log 2>&1

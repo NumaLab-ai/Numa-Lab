@@ -19,8 +19,10 @@ load_dotenv(override=True)
 
 from yandex_parser import fetch_candidates, CATEGORIES, DISTRICTS
 from filter import filter_lead, quick_reject
+import ai_qualifier
+import notify
 from ai_qualifier import qualify_lead_with_ai, DEEPSEEK_API_KEY
-from nocodb_client import send_lead_to_nocodb, get_existing_leads_keys
+from nocodb_client import send_lead_to_nocodb, get_existing_leads_keys, count_new_leads
 from utils import phone_key
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +34,8 @@ MAX_CHECK_PER_CATEGORY = 80    # сколько кандидатов прове�
 WORKERS = 3                    # параллельные проверки (Raspberry Pi 3 тянет)
 MAX_AI_FAILS_IN_ROW = 5        # столько сбоев ИИ подряд — останавливаем запуск
 PAUSE_BETWEEN_QUERIES = 3      # пауза между запросами к Overpass, секунд
+POOL_TARGET = int(os.getenv("POOL_TARGET", "0"))   # 0 = искать всегда; число N = не искать, пока свободных лидов N и больше
+ALERT_COOLDOWN = 6 * 3600      # одну и ту же тревогу шлём не чаще раза в 6 часов
 
 
 def load_json(path, default):
@@ -47,6 +51,16 @@ def save_json(path, data):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
     os.replace(tmp, path)
+
+
+def alert(state: dict, kind: str, text: str):
+    """Тревога админам в Telegram, не чаще раза в ALERT_COOLDOWN на каждый вид."""
+    alerts = state.setdefault("alerts", {})
+    if time.time() - alerts.get(kind, 0) < ALERT_COOLDOWN:
+        return
+    alerts[kind] = time.time()
+    save_json(STATE_FILE, state)
+    notify.send_admin(text)
 
 
 def process(raw: dict):
@@ -70,7 +84,7 @@ def _process(raw: dict):
     return {"kind": "ok", "lead": qualified}
 
 
-def run_pipeline(district=None, categories=None, dry=False):
+def run_pipeline(district=None, categories=None, dry=False, force=False):
     state = load_json(STATE_FILE, {"district_idx": 0})
     auto_district = district is None
     district = district or DISTRICTS[state.get("district_idx", 0) % len(DISTRICTS)]
@@ -81,12 +95,21 @@ def run_pipeline(district=None, categories=None, dry=False):
 
     if not dry and not DEEPSEEK_API_KEY:
         print("[Стоп] DEEPSEEK_API_KEY не задан в .env — квалификация невозможна.")
+        alert(state, "deepseek", "⚠️ Парсер лидов остановлен: в .env нет DEEPSEEK_API_KEY.")
         return
+    ai_qualifier.LAST_FATAL = False
 
     names, phones, db_ok = get_existing_leads_keys()
     if not db_ok and not dry:
         print("[Стоп] Не удалось прочитать базу NocoDB: без неё не отличить новые лиды от дублей.")
+        alert(state, "nocodb", "⚠️ Парсер лидов остановлен: NocoDB не отвечает.")
         return
+    if not dry and not force and POOL_TARGET > 0:
+        pool = count_new_leads()
+        if pool is not None and pool >= POOL_TARGET:
+            print(f"[Пропуск] Свободных лидов {pool} (цель {POOL_TARGET}): база и так полная, новый поиск не нужен.")
+            return
+        print(f"Свободных лидов сейчас: {pool if pool is not None else 'неизвестно'} (цель {POOL_TARGET})")
     rejected = set(load_json(REJECTED_FILE, []))
 
     started = time.time()
@@ -168,6 +191,12 @@ def run_pipeline(district=None, categories=None, dry=False):
 
     if not dry:
         save_json(REJECTED_FILE, sorted(rejected))
+        if stop and ai_qualifier.LAST_FATAL:
+            alert(state, "deepseek", "⚠️ DeepSeek отклоняет запросы парсера (ключ или баланс). Проверьте аккаунт DeepSeek: пополнение базы остановлено.")
+        elif stop:
+            alert(state, "deepseek", "⚠️ DeepSeek не отвечает несколько раз подряд, запуск парсера прерван. Попробую снова по расписанию.")
+        if totals["fetched"] == 0 and totals["failed_fetch"]:
+            alert(state, "overpass", "⚠️ Серверы карт (Overpass) не отвечают, парсер не смог найти компании. Попробую снова по расписанию.")
         # следующий запуск пойдёт в следующий округ; если запуск оборвался или Overpass почти не отвечал, повторим этот же
         if auto_district and not stop and totals["fetched"] >= max(1, len(categories) // 2):
             state["district_idx"] = (state.get("district_idx", 0) + 1) % len(DISTRICTS)
@@ -181,6 +210,12 @@ def run_pipeline(district=None, categories=None, dry=False):
     if not dry:
         tiers = ", ".join(f"{k}: {v}" for k, v in sorted(totals["tier"].items())) or "—"
         print(f"ДОБАВЛЕНО НОВЫХ ЛИДОВ: {totals['added']} ({tiers})")
+        if totals["added"]:
+            pool_after = count_new_leads()
+            notify.send_admin(
+                f"🤖 База пополнена: +{totals['added']} лидов ({tiers}).\n"
+                f"Округ: {district}\nСвободных лидов в пуле: {pool_after if pool_after is not None else '?'}"
+            )
 
 
 if __name__ == "__main__":
@@ -188,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--dry", action="store_true", help="только посчитать кандидатов")
     parser.add_argument("--district", help="конкретный округ вместо очереди")
     parser.add_argument("--categories", help="список категорий через запятую")
+    parser.add_argument("--force", action="store_true", help="искать, даже если свободных лидов уже достаточно")
     args = parser.parse_args()
     cats = [c.strip() for c in args.categories.split(",")] if args.categories else None
-    run_pipeline(district=args.district, categories=cats, dry=args.dry)
+    run_pipeline(district=args.district, categories=cats, dry=args.dry, force=args.force)
