@@ -1,229 +1,597 @@
-"""Пайплайн поиска и квалификации лидов Numa Studio.
-
-Запуск:
-  python main.py                      обычный запуск: следующий по очереди округ Москвы
-  python main.py --dry                только посмотреть, сколько компаний найдено (без сайтов, ИИ и записи в базу)
-  python main.py --district "Южный административный округ"
-  python main.py --categories "ресторан,сауна"
-"""
-import argparse
-import json
 import os
-import random
 import time
-from concurrent.futures import ThreadPoolExecutor
+import logging
+import asyncio
+from typing import Optional, Union
 
+from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart, Command, CommandObject
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, MenuButtonWebApp, BotCommand
+from aiogram.client.session.aiohttp import AiohttpSession
 from dotenv import load_dotenv
 
+import nocodb
+import stats
+import service
+import referral
+import messaging
+from auth import verify_init_data, AuthError
+
+logging.basicConfig(level=logging.INFO)
 load_dotenv(override=True)
 
-from yandex_parser import fetch_candidates, CATEGORIES, DISTRICTS
-from filter import filter_lead, quick_reject
-import ai_qualifier
-import notify
-from ai_qualifier import qualify_lead_with_ai, DEEPSEEK_API_KEY
-from nocodb_client import send_lead_to_nocodb, get_existing_leads_keys, count_new_leads
-from utils import phone_key
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "RAG3QU1T").lstrip("@")
+ADMIN_USERNAMES = {u.strip().lstrip("@").lower() for u in os.getenv("ADMIN_USERNAMES", "RAG3QU1T,numa_ceo").split(",") if u.strip()}
+WEBAPP_URL = os.getenv("WEBAPP_URL", "http://100.94.236.55:8000")
+TG_PROXY = os.getenv("TG_PROXY") or None
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-STATE_FILE = os.path.join(HERE, "state.json")
-REJECTED_FILE = os.path.join(HERE, "rejected.json")
+ALLOW_MANAGER_BROADCAST = os.getenv("ALLOW_MANAGER_BROADCAST", "0") == "1"
 
-TARGET_NEW_PER_CATEGORY = 15   # сколько НОВЫХ лидов добавить на категорию за запуск
-MAX_CHECK_PER_CATEGORY = 80    # сколько кандидатов проверять (сайт + ИИ) на категорию
-WORKERS = 3                    # параллельные проверки (Raspberry Pi 3 тянет)
-MAX_AI_FAILS_IN_ROW = 5        # столько сбоев ИИ подряд — останавливаем запуск
-PAUSE_BETWEEN_QUERIES = 3      # пауза между запросами к Overpass, секунд
-POOL_TARGET = int(os.getenv("POOL_TARGET", "0"))   # 0 = искать всегда; число N = не искать, пока свободных лидов N и больше
-ALERT_COOLDOWN = 6 * 3600      # одну и ту же тревогу шлём не чаще раза в 6 часов
+STATE = {"admin_ids": set(), "bot_username": os.getenv("BOT_USERNAME", "").lstrip("@") or None}
+PENDING = {}          # кто сейчас пишет сообщение через бота: {tg_id: {"to": ..., "ts": ...}}
+PENDING_TTL = 600
+limiter = messaging.RateLimiter()
+
+bot = Bot(token=BOT_TOKEN, session=AiohttpSession(proxy=TG_PROXY))
+dp = Dispatcher()
+fastapi_app = FastAPI(title="Numa Partners API")
+
+if os.path.isdir(os.path.join(BASE_DIR, "static")):
+    fastapi_app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 
-def load_json(path, default):
+# ---------- Вспомогательное ----------
+
+_cache = {}
+
+
+def cached(key, ttl, fn, *args):
+    """Короткий кэш, чтобы не дёргать NocoDB на каждый клик (Raspberry Pi слабая)."""
+    now = time.time()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    value = fn(*args)
+    _cache[key] = (now, value)
+    return value
+
+
+def invalidate(*prefixes):
+    for key in list(_cache):
+        if any(key.startswith(p) for p in prefixes):
+            _cache.pop(key, None)
+
+
+async def run(fn, *args):
+    """Выполняет синхронную функцию (NocoDB) в потоке и переводит ошибки в HTTP."""
     try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
+        return await asyncio.to_thread(fn, *args)
+    except service.ServiceError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
+    except nocodb.NocoError as e:
+        logging.error("NocoDB: %s", e)
+        raise HTTPException(status_code=502, detail="База данных временно недоступна")
 
 
-def save_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    os.replace(tmp, path)
+def is_admin(tg_user: types.User) -> bool:
+    return (tg_user.username or "").lower() in ADMIN_USERNAMES
 
 
-def alert(state: dict, kind: str, text: str):
-    """Тревога админам в Telegram, не чаще раза в ALERT_COOLDOWN на каждый вид."""
-    alerts = state.setdefault("alerts", {})
-    if time.time() - alerts.get(kind, 0) < ALERT_COOLDOWN:
+def approve_keyboard(tg_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_{tg_id}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{tg_id}"),
+        InlineKeyboardButton(text="⛔ Бан", callback_data=f"ban_{tg_id}"),
+    ]])
+
+
+async def notify_user(tg_id: int, text: Optional[str]):
+    if not text:
         return
-    alerts[kind] = time.time()
-    save_json(STATE_FILE, state)
-    notify.send_admin(text)
-
-
-def process(raw: dict):
-    """Проверка сайта и квалификация одного кандидата (выполняется в потоке)."""
     try:
-        return _process(raw)
-    except Exception as e:  # один сбойный кандидат не должен ронять весь запуск
-        return {"kind": "skip", "reason": f"внутренняя ошибка: {e}", "permanent": False}
+        await bot.send_message(tg_id, text)
+    except Exception as e:
+        logging.warning("Не удалось уведомить %s: %s", tg_id, e)
 
 
-def _process(raw: dict):
-    ok, lead = filter_lead(raw)
-    if not ok:
-        return {"kind": "skip", "reason": lead["reason"], "permanent": lead["permanent"]}
-    qualified = qualify_lead_with_ai(lead)
-    if qualified is None:
-        return {"kind": "ai_fail"}
-    if qualified["tier"] == "D":
-        return {"kind": "skip", "reason": "ИИ: не целевой клиент (Tier D)", "permanent": True}
-    qualified["status"] = "New"
-    return {"kind": "ok", "lead": qualified}
+async def notify_admins(text: str, reply_markup=None):
+    ids = set(STATE["admin_ids"])
+    try:
+        ids.update(await asyncio.to_thread(nocodb.get_admin_ids))
+    except nocodb.NocoError as e:
+        logging.warning("Не удалось получить админов из базы: %s", e)
+    if not ids:
+        logging.warning("Некому отправить уведомление админу: никто из админов ещё не писал /start")
+    for admin_id in ids:
+        await notify_user_markup(admin_id, text, reply_markup)
 
 
-def run_pipeline(district=None, categories=None, dry=False, force=False):
-    state = load_json(STATE_FILE, {"district_idx": 0})
-    auto_district = district is None
-    district = district or DISTRICTS[state.get("district_idx", 0) % len(DISTRICTS)]
-    categories = categories or CATEGORIES
+async def notify_user_markup(tg_id: int, text: str, reply_markup=None):
+    try:
+        await bot.send_message(tg_id, text, reply_markup=reply_markup)
+    except Exception as e:
+        logging.warning("Не удалось уведомить %s: %s", tg_id, e)
 
-    print(f"\n=== ПАЙПЛАЙН NUMA STUDIO {'(DRY-RUN) ' if dry else ''}===")
-    print(f"Округ: {district} | Категорий: {len(categories)} | Цель: {TARGET_NEW_PER_CATEGORY} новых лидов на категорию\n")
 
-    if not dry and not DEEPSEEK_API_KEY:
-        print("[Стоп] DEEPSEEK_API_KEY не задан в .env — квалификация невозможна.")
-        alert(state, "deepseek", "⚠️ Парсер лидов остановлен: в .env нет DEEPSEEK_API_KEY.")
-        return
-    ai_qualifier.LAST_FATAL = False
+def _set_status_sync(tg_id: int, status: str):
+    rec = nocodb.get_user_by_tg_id(tg_id)
+    service.check_status_change(rec, status, ADMIN_USERNAMES)
+    fields = {"status": status}
+    if status == "approved" and not rec.get("approved_at"):
+        fields["approved_at"] = service.now_iso()  # с этого дня идёт месяц реферального бонуса
+    nocodb.update_user(rec["Id"], fields)
+    invalidate("users", f"user:{tg_id}")
+    return rec, fields
 
-    names, phones, db_ok = get_existing_leads_keys()
-    if not db_ok and not dry:
-        print("[Стоп] Не удалось прочитать базу NocoDB: без неё не отличить новые лиды от дублей.")
-        alert(state, "nocodb", "⚠️ Парсер лидов остановлен: NocoDB не отвечает.")
-        return
-    if not dry and not force and POOL_TARGET > 0:
-        pool = count_new_leads()
-        if pool is not None and pool >= POOL_TARGET:
-            print(f"[Пропуск] Свободных лидов {pool} (цель {POOL_TARGET}): база и так полная, новый поиск не нужен.")
-            return
-        print(f"Свободных лидов сейчас: {pool if pool is not None else 'неизвестно'} (цель {POOL_TARGET})")
-    rejected = set(load_json(REJECTED_FILE, []))
 
-    started = time.time()
-    totals = {"added": 0, "dup": 0, "rejected": 0, "checked": 0, "tier": {}, "fetched": 0, "failed_fetch": 0}
-    ai_fails = 0
-    stop = False
+async def set_user_status(tg_id: int, status: str):
+    """Меняет статус менеджера и сообщает ему об этом. Используется и ботом, и API."""
+    rec, fields = await run(_set_status_sync, tg_id, status)
+    await notify_user(tg_id, service.USER_STATUS_MESSAGES.get(status))
+    if "approved_at" in fields and rec.get("referrer_id"):
+        try:
+            await notify_user(int(rec["referrer_id"]), (
+                f"🤝 {rec.get('full_name') or 'Ваш друг'} присоединился по вашей ссылке!\n"
+                f"Ближайшие {referral.REFERRAL_DAYS} дней вы получаете {referral.REFERRAL_PERCENT:g}% с суммы его сделок."))
+        except (TypeError, ValueError):
+            pass
 
-    for cat_idx, category in enumerate(categories, 1):
-        if stop:
-            break
-        print(f"\n[{cat_idx}/{len(categories)}] {category}")
-        candidates = fetch_candidates(category, district)
-        time.sleep(PAUSE_BETWEEN_QUERIES)
-        if candidates is None:
-            print("  Overpass недоступен, категория пропущена")
-            totals["failed_fetch"] += 1
-            continue
-        totals["fetched"] += 1
 
-        fresh, n_dup, n_rej = [], 0, 0
-        seen_now = set()
-        for c in candidates:
-            key = phone_key(c["phone"])
-            if c["company_name"].lower() in names or key in phones or key in seen_now:
-                n_dup += 1
-            elif key in rejected or quick_reject(c):
-                n_rej += 1
-            else:
-                fresh.append(c)
-                seen_now.add(key)
-        totals["dup"] += n_dup
-        totals["rejected"] += n_rej
+async def get_bot_username():
+    if not STATE["bot_username"]:
+        try:
+            STATE["bot_username"] = (await bot.get_me()).username
+        except Exception as e:
+            logging.warning("Не удалось узнать username бота (можно задать BOT_USERNAME в .env): %s", e)
+    return STATE["bot_username"]
 
-        no_site = sum(1 for c in fresh if not c["site_url"])
-        print(f"  Найдено с телефоном: {len(candidates)} | уже в базе: {n_dup} | отсев по названию/сетям: {n_rej} | "
-              f"кандидатов: {len(fresh)} (без сайта в OSM: {no_site})")
-        if dry:
-            continue
 
-        # сначала те, у кого сайта в OSM нет: среди них больше Tier A; внутри групп порядок случайный
-        random.shuffle(fresh)
-        fresh.sort(key=lambda c: bool(c["site_url"]))
-        fresh = fresh[:MAX_CHECK_PER_CATEGORY]
+# ---------- Telegram-бот ----------
 
-        added = 0
-        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-            for start in range(0, len(fresh), WORKERS * 2):
-                if added >= TARGET_NEW_PER_CATEGORY or stop:
-                    break
-                batch = fresh[start:start + WORKERS * 2]
-                for raw, res in zip(batch, pool.map(process, batch)):
-                    totals["checked"] += 1
-                    name = raw["company_name"]
-                    if res["kind"] == "ai_fail":
-                        ai_fails += 1
-                        print(f"  [ИИ недоступен] {name}")
-                        if ai_fails >= MAX_AI_FAILS_IN_ROW:
-                            print("[Стоп] DeepSeek не отвечает несколько раз подряд — останавливаю запуск.")
-                            stop = True
-                        continue
-                    ai_fails = 0
-                    if res["kind"] == "skip":
-                        print(f"  [Пропуск] {name}: {res['reason']}")
-                        if res["permanent"]:
-                            rejected.add(phone_key(raw["phone"]))
-                            totals["rejected"] += 1
-                        continue
-                    lead = res["lead"]
-                    if added >= TARGET_NEW_PER_CATEGORY:
-                        continue  # уже набрали; этот лид останется для следующего запуска
-                    if send_lead_to_nocodb(lead):
-                        added += 1
-                        totals["added"] += 1
-                        totals["tier"][lead["tier"]] = totals["tier"].get(lead["tier"], 0) + 1
-                        names.add(name.lower())
-                        phones.add(phone_key(lead["phone"]))
-        print(f"  Добавлено: {added}")
-        save_json(REJECTED_FILE, sorted(rejected))
+@dp.message(CommandStart())
+async def start_handler(message: types.Message, command: CommandObject = None):
+    print(f"[BOT LOG] /start от {message.from_user.username} (ID: {message.from_user.id})")
+    tg_id = message.from_user.id
+    username = (message.from_user.username or "").lstrip("@")
+    full_name = message.from_user.full_name or "Пользователь"
 
-    if not dry:
-        save_json(REJECTED_FILE, sorted(rejected))
-        if stop and ai_qualifier.LAST_FATAL:
-            alert(state, "deepseek", "⚠️ DeepSeek отклоняет запросы парсера (ключ или баланс). Проверьте аккаунт DeepSeek: пополнение базы остановлено.")
-        elif stop:
-            alert(state, "deepseek", "⚠️ DeepSeek не отвечает несколько раз подряд, запуск парсера прерван. Попробую снова по расписанию.")
-        if totals["fetched"] == 0 and totals["failed_fetch"]:
-            alert(state, "overpass", "⚠️ Серверы карт (Overpass) не отвечают, парсер не смог найти компании. Попробую снова по расписанию.")
-        # следующий запуск пойдёт в следующий округ; если запуск оборвался или Overpass почти не отвечал, повторим этот же
-        if auto_district and not stop and totals["fetched"] >= max(1, len(categories) // 2):
-            state["district_idx"] = (state.get("district_idx", 0) + 1) % len(DISTRICTS)
-            save_json(STATE_FILE, state)
+    try:
+        user = await asyncio.to_thread(nocodb.get_user_by_tg_id, tg_id)
 
-    minutes = (time.time() - started) / 60
-    print("\n=== ГОТОВО ===")
-    print(f"Округ: {district} | время: {minutes:.1f} мин")
-    print(f"Категорий обработано: {totals['fetched']}, не загрузилось: {totals['failed_fetch']}")
-    print(f"Дубликатов: {totals['dup']} | отсеяно: {totals['rejected']} | проверено: {totals['checked']}")
-    if not dry:
-        tiers = ", ".join(f"{k}: {v}" for k, v in sorted(totals["tier"].items())) or "—"
-        print(f"ДОБАВЛЕНО НОВЫХ ЛИДОВ: {totals['added']} ({tiers})")
-        if totals["added"]:
-            pool_after = count_new_leads()
-            notify.send_admin(
-                f"🤖 База пополнена: +{totals['added']} лидов ({tiers}).\n"
-                f"Округ: {district}\nСвободных лидов в пуле: {pool_after if pool_after is not None else '?'}"
+        if is_admin(message.from_user):
+            STATE["admin_ids"].add(tg_id)
+            if not user:
+                await asyncio.to_thread(nocodb.create_user_request, tg_id, username, full_name, "admin", "approved")
+            elif user.get("status") != "approved" or user.get("role") != "admin":
+                await asyncio.to_thread(nocodb.update_user, user["Id"], {"status": "approved", "role": "admin"})
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🚀 Открыть Numa Partners Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app"))
+            ]])
+            await message.answer(
+                f"👋 Приветствую, Администратор Numa Studio (@{username})!\nДоступ администратора активирован.",
+                reply_markup=kb,
             )
+            return
+
+        if user:
+            status = user.get("status")
+            if status == "approved":
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="💼 Открыть Numa Partners App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app"))
+                ]])
+                await message.answer(f"С возвращением, {full_name}! Ваша панель готова к работе.", reply_markup=kb)
+            elif status == "pending":
+                await message.answer(f"⏳ Ваша заявка находится на рассмотрении у администратора (@{ADMIN_USERNAME}).")
+            elif status == "banned":
+                await message.answer("⛔ Доступ к Numa Partners закрыт администратором.")
+            else:
+                await message.answer("❌ Доступ к Numa Partners был отклонен.")
+            return
+
+        referrer_id, referrer_name = None, ""
+        ref_id = referral.parse_ref_payload(command.args if command else None)
+        if ref_id and ref_id != tg_id:
+            ref_rec = await asyncio.to_thread(_user_record, ref_id)
+            if ref_rec and ref_rec.get("status") == "approved":
+                referrer_id, referrer_name = ref_id, ref_rec.get("full_name") or ""
+        await asyncio.to_thread(nocodb.create_user_request, tg_id, username, full_name, "manager", "pending", referrer_id)
+    except nocodb.NocoError as e:
+        logging.error("NocoDB в /start: %s", e)
+        await message.answer("⚠️ Сервис временно недоступен, попробуйте через минуту.")
+        return
+
+    await message.answer(
+        f"🛎 Ваша заявка отправлена на подтверждение администратору (@{ADMIN_USERNAME}). Ожидайте авторизации!"
+    )
+    await notify_admins(
+        f"🛎 Новая заявка менеджера:\n{full_name} (@{username or 'без username'})\nID: {tg_id}"
+        + (f"\nПригласил: {referrer_name} (ID {referrer_id})" if referrer_id else ""),
+        approve_keyboard(tg_id),
+    )
+
+
+ACTIONS = {"approve": "approved", "reject": "rejected", "ban": "banned"}
+ACTION_TEXT = {"approved": "✅ Пользователь {id} одобрен", "rejected": "❌ Пользователь {id} отклонён", "banned": "⛔ Пользователь {id} заблокирован"}
+
+
+@dp.callback_query(F.data.startswith("approve_"))
+@dp.callback_query(F.data.startswith("reject_"))
+@dp.callback_query(F.data.startswith("ban_"))
+async def user_action_callback(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user):
+        await callback.answer("Недостаточно прав", show_alert=True)
+        return
+    try:
+        action, raw_id = callback.data.split("_", 1)
+        tg_id = int(raw_id)
+        status = ACTIONS[action]
+    except (ValueError, KeyError):
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    try:
+        await set_user_status(tg_id, status)
+        text = ACTION_TEXT[status].format(id=tg_id)
+    except HTTPException as e:
+        text = f"⚠️ {e.detail}"
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
+# ---------- Авторизация API ----------
+
+def _user_record(tg_id: int):
+    return cached(f"user:{tg_id}", 20, nocodb.get_user_by_tg_id, tg_id)
+
+
+async def current_user(x_init_data: str = Header(default="")) -> dict:
+    try:
+        tg = verify_init_data(x_init_data, BOT_TOKEN)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    try:
+        tg_id = int(tg["id"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Неверные данные пользователя")
+    username = tg.get("username") or ""
+    admin = username.lower() in ADMIN_USERNAMES
+    rec = await run(_user_record, tg_id)
+
+    if not admin:
+        if not rec:
+            raise HTTPException(status_code=403, detail="not_registered")
+        if rec.get("status") != "approved":
+            raise HTTPException(status_code=403, detail=rec.get("status") or "rejected")
+
+    name = f"{tg.get('first_name', '')} {tg.get('last_name', '')}".strip() or username or str(tg_id)
+    return {
+        "tg_id": tg_id,
+        "username": username,
+        "name": name,
+        "is_admin": admin,
+        "record": rec,
+        "percent": stats.user_percent(rec),
+    }
+
+
+async def admin_user(me: dict = Depends(current_user)) -> dict:
+    if not me["is_admin"]:
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    return me
+
+
+# ---------- API для Mini App ----------
+
+@fastapi_app.get("/app", response_class=HTMLResponse)
+async def get_mini_app():
+    with open(os.path.join(BASE_DIR, "static", "index.html"), "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@fastapi_app.get("/api/me")
+async def api_me(period: str = "all", me: dict = Depends(current_user)):
+    period = period if period in service.PERIODS else "all"
+    leads = await run(cached, f"mine:{me['tg_id']}", 15, nocodb.get_leads_of_manager, me["tg_id"])
+    record = me["record"] or {
+        "telegram_id": me["tg_id"], "full_name": me["name"], "username": me["username"],
+        "status": "approved", "role": "admin" if me["is_admin"] else "manager",
+    }
+    return {
+        "tg_id": me["tg_id"],
+        "name": me["name"],
+        "username": me["username"],
+        "is_admin": me["is_admin"],
+        "percent": me["percent"],
+        "stats": service.personal_row(leads, record, period),
+    }
+
+
+@fastapi_app.get("/api/leads")
+async def api_leads(scope: str = "pool", tier: str = "A", status: Optional[str] = None, me: dict = Depends(current_user)):
+    if scope == "pool":
+        if tier not in service.POOL_TIERS:
+            raise HTTPException(status_code=400, detail="Недопустимый tier")
+        return await run(nocodb.get_leads_feed, "New", tier, 50)
+    if scope == "mine":
+        if status and status not in service.LEAD_STATUSES:
+            raise HTTPException(status_code=400, detail="Недопустимый статус")
+        leads = await run(cached, f"mine:{me['tg_id']}", 15, nocodb.get_leads_of_manager, me["tg_id"])
+        return [l for l in leads if (l.get("status") == status if status else l.get("status") in service.LEAD_STATUSES)]
+    raise HTTPException(status_code=400, detail="Недопустимый scope")
+
+
+def num_or_zero(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class LeadUpdate(BaseModel):
+    lead_id: int
+    status: str
+    comment: Optional[str] = None
+    deal_amount: Optional[Union[float, str]] = None
+
+
+def _update_lead_sync(data: LeadUpdate, me: dict):
+    lead = nocodb.get_lead(data.lead_id)
+    if not lead:
+        raise service.ServiceError(404, "Лид не найден")
+
+    def percent_of(tg_id: int) -> float:
+        return stats.user_percent(_user_record(tg_id))
+
+    def referral_of(owner_id: int) -> dict:
+        owner = _user_record(owner_id)
+        try:
+            referrer = _user_record(int((owner or {}).get("referrer_id")))
+        except (TypeError, ValueError):
+            return {}
+        return referral.deal_snapshot(owner, referrer)
+
+    fields = service.plan_lead_update(lead, me, data.status, data.comment, data.deal_amount, percent_of, referral_of)
+    nocodb.update_lead(data.lead_id, fields)
+    invalidate("mine:", "all_leads", "refl:")
+    return lead, fields
+
+
+@fastapi_app.post("/api/leads/update")
+async def api_update_lead(data: LeadUpdate, me: dict = Depends(current_user)):
+    lead, fields = await run(_update_lead_sync, data, me)
+    if fields.get("status") == "Won" and "deal_amount" in fields:
+        amount_text = f"{fields['deal_amount']:,.0f}".replace(",", " ")
+        asyncio.create_task(notify_admins(
+            f"🎉 Сделка! {me['name']}: «{lead.get('company_name', '')}» на {amount_text} ₽"
+        ))
+        if fields.get("referrer_id"):
+            bonus = fields["deal_amount"] * num_or_zero(fields.get("referral_percent")) / 100
+            asyncio.create_task(notify_user(int(fields["referrer_id"]), (
+                f"💸 Ваш друг {me['name']} закрыл сделку на {amount_text} ₽. "
+                f"Ваш бонус: {f'{bonus:,.0f}'.replace(',', ' ')} ₽ ({fields.get('referral_percent'):g}%)")))
+    return {"status": "ok"}
+
+
+# ---------- API админа ----------
+
+@fastapi_app.get("/api/admin/stats")
+async def api_admin_stats(period: str = "all", me: dict = Depends(admin_user)):
+    period = period if period in service.PERIODS else "all"
+    users = await run(cached, "users", 15, nocodb.get_users)
+    leads = await run(cached, "all_leads", 30, nocodb.get_leads_light)
+    result = stats.compute_stats(leads, users, period)
+    result["admin_usernames"] = sorted(ADMIN_USERNAMES)
+    return result
+
+
+class UserStatus(BaseModel):
+    tg_id: int
+    status: str
+
+
+@fastapi_app.post("/api/admin/users/status")
+async def api_user_status(data: UserStatus, me: dict = Depends(admin_user)):
+    await set_user_status(data.tg_id, data.status)
+    return {"status": "ok"}
+
+
+class UserPercent(BaseModel):
+    tg_id: int
+    percent: Union[float, str]
+
+
+def _set_percent_sync(tg_id: int, percent):
+    value = service.parse_percent(percent)
+    rec = nocodb.get_user_by_tg_id(tg_id)
+    if not rec:
+        raise service.ServiceError(404, "Пользователь не найден")
+    nocodb.update_user(rec["Id"], {"commission_percent": value})
+    invalidate("users", f"user:{tg_id}")
+    return value
+
+
+@fastapi_app.post("/api/admin/users/percent")
+async def api_user_percent(data: UserPercent, me: dict = Depends(admin_user)):
+    value = await run(_set_percent_sync, data.tg_id, data.percent)
+    await notify_user(data.tg_id, f"💼 Ваш процент с продаж: {value:g}%")
+    return {"status": "ok", "percent": value}
+
+
+# ---------- Реферальная программа ----------
+
+def _referral_sync(me: dict):
+    users = cached("users", 15, nocodb.get_users)
+    ref_leads = cached(f"refl:{me['tg_id']}", 30, nocodb.get_leads_by_referrer, me["tg_id"])
+    return referral.summarize(me["tg_id"], users, ref_leads)
+
+
+@fastapi_app.get("/api/referral")
+async def api_referral(me: dict = Depends(current_user)):
+    data = await run(_referral_sync, me)
+    username = await get_bot_username()
+    data["link"] = f"https://t.me/{username}?start=ref_{me['tg_id']}" if username else None
+    return data
+
+
+# ---------- Сообщения через бота ----------
+
+class MessageIn(BaseModel):
+    to: str
+    text: str
+
+
+def _users_cached():
+    return cached("users", 15, nocodb.get_users)
+
+
+def _plan_message_sync(me: dict, to: str, text: str):
+    return messaging.plan_message(me, to, text, _users_cached(), ADMIN_USERNAMES, limiter, ALLOW_MANAGER_BROADCAST)
+
+
+async def deliver(me: dict, targets: list, text: str) -> dict:
+    """Отправляет сообщение получателям (с кнопкой «Ответить») и возвращает итог."""
+    body = messaging.format_message(me, text)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="↩️ Ответить", callback_data=f"wreply_{me['tg_id']}")
+    ]])
+    sent, failed = 0, []
+    for t in targets:
+        try:
+            await bot.send_message(int(t["tg_id"]), body, reply_markup=kb)
+            sent += 1
+        except Exception as e:
+            logging.warning("Сообщение для %s не доставлено: %s", t["tg_id"], e)
+            failed.append(t["name"])
+        await asyncio.sleep(0.05)  # лимит Telegram около 30 сообщений в секунду
+    logging.info("Сообщение от %s: доставлено %s, не доставлено %s", me["tg_id"], sent, len(failed))
+    return {"sent": sent, "failed": failed}
+
+
+@fastapi_app.get("/api/messages/recipients")
+async def api_message_recipients(me: dict = Depends(current_user)):
+    users = await run(_users_cached)
+    return messaging.recipients_view(me, users, ADMIN_USERNAMES, ALLOW_MANAGER_BROADCAST)
+
+
+@fastapi_app.post("/api/messages/send")
+async def api_message_send(data: MessageIn, me: dict = Depends(current_user)):
+    targets, text = await run(_plan_message_sync, me, data.to, data.text)
+    return await deliver(me, targets, text)
+
+
+async def bot_actor(tg_user: types.User):
+    """Тот же допуск, что у API: одобренный участник или админ. Иначе None."""
+    admin = is_admin(tg_user)
+    rec = await run(_user_record, tg_user.id)
+    if not admin and (not rec or rec.get("status") != "approved"):
+        return None
+    name = tg_user.full_name or tg_user.username or str(tg_user.id)
+    return {"tg_id": tg_user.id, "username": tg_user.username or "", "name": name, "is_admin": admin, "record": rec}
+
+
+@dp.message(Command("write"))
+async def write_command(message: types.Message):
+    me = await bot_actor(message.from_user)
+    if not me:
+        await message.answer("Писать коллегам могут только одобренные участники Numa Partners.")
+        return
+    view = messaging.recipients_view(me, await run(_users_cached), ADMIN_USERNAMES, ALLOW_MANAGER_BROADCAST)
+    rows = []
+    if view["can_broadcast"]:
+        rows.append([InlineKeyboardButton(text="📢 Всем сразу", callback_data="wto_all")])
+    if view["has_admins"]:
+        rows.append([InlineKeyboardButton(text="👑 Админам", callback_data="wto_admins")])
+    people = [InlineKeyboardButton(text=p["name"][:28], callback_data=f"wto_{p['tg_id']}") for p in view["people"][:40]]
+    rows.extend([people[i:i + 2] for i in range(0, len(people), 2)])
+    if not rows:
+        await message.answer("Пока некому писать: других участников нет.")
+        return
+    await message.answer("Кому написать?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@dp.callback_query(F.data.startswith("wto_"))
+@dp.callback_query(F.data.startswith("wreply_"))
+async def write_target_callback(callback: types.CallbackQuery):
+    me = await bot_actor(callback.from_user)
+    if not me:
+        await callback.answer("Недостаточно прав", show_alert=True)
+        return
+    to = callback.data.split("_", 1)[1]
+    if to != "all" and to != "admins" and not to.isdigit():
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    PENDING[callback.from_user.id] = {"to": to, "ts": time.time()}
+    await callback.message.answer("Напишите сообщение одним текстом. Отмена: /cancel")
+    await callback.answer()
+
+
+@dp.message(Command("cancel"))
+async def cancel_command(message: types.Message):
+    PENDING.pop(message.from_user.id, None)
+    await message.answer("Отменено.")
+
+
+@dp.message(F.text & ~F.text.startswith("/"))
+async def text_handler(message: types.Message):
+    pend = PENDING.pop(message.from_user.id, None)
+    if not pend or time.time() - pend["ts"] > PENDING_TTL:
+        await message.answer("Открыть приложение: /start\nНаписать коллеге: /write")
+        return
+    me = await bot_actor(message.from_user)
+    if not me:
+        return
+    try:
+        targets, text = await run(_plan_message_sync, me, pend["to"], message.text)
+    except HTTPException as e:
+        await message.answer(f"⚠️ {e.detail}")
+        return
+    result = await deliver(me, targets, text)
+    note = f"✅ Доставлено: {result['sent']}"
+    if result["failed"]:
+        note += f"\nНе доставлено ({len(result['failed'])}): " + ", ".join(result["failed"][:10]) + \
+                "\nВозможно, они ещё не запускали бота."
+    await message.answer(note)
+
+
+# ---------- Запуск ----------
+
+async def setup_bot_ui():
+    """Кнопка Mini App рядом со строкой сообщений (для всех чатов с ботом) и меню команд."""
+    try:
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+            text="Numa", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app")))
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Открыть Numa Partners"),
+            BotCommand(command="write", description="Написать коллеге или всем"),
+            BotCommand(command="cancel", description="Отменить написание"),
+        ])
+        logging.info("Кнопка Mini App и команды установлены")
+    except Exception as e:
+        logging.warning("Не удалось установить кнопку меню (нужен https-адрес WEBAPP_URL): %s", e)
+    await get_bot_username()
+
+
+async def start_bot():
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await setup_bot_ui()
+        logging.info("Bot polling started")
+        await dp.start_polling(bot, handle_signals=False)
+    except Exception:
+        logging.exception("BOT POLLING FAILED")
+
+
+@fastapi_app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(start_bot())
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry", action="store_true", help="только посчитать кандидатов")
-    parser.add_argument("--district", help="конкретный округ вместо очереди")
-    parser.add_argument("--categories", help="список категорий через запятую")
-    parser.add_argument("--force", action="store_true", help="искать, даже если свободных лидов уже достаточно")
-    args = parser.parse_args()
-    cats = [c.strip() for c in args.categories.split(",")] if args.categories else None
-    run_pipeline(district=args.district, categories=cats, dry=args.dry, force=args.force)
+    import uvicorn
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
