@@ -1,63 +1,189 @@
 <!DOCTYPE html>
-<html lang="ru" class="dark">
+<html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Numa Partners</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .chip-on { background:#4f46e5; color:#fff; border-color:#6366f1; }
-        .chip-off { background:#1e293b; color:#cbd5e1; border-color:#334155; }
-        input, textarea { background:#0b1220; border:1px solid #334155; color:#f8fafc; border-radius:.5rem; padding:.5rem .6rem; width:100%; font-size:14px; }
-        input:focus, textarea:focus { outline:none; border-color:#6366f1; }
-    </style>
-</head>
-<body class="pb-24">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f5f4f0">
+<title>Numa Partners</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* Стиль сайта Numa: тёплый светлый фон, крупные заголовки, нумерованные разделы, чёрные «таблетки» вместо ярких цветов.
+   Все цвета и радиусы собраны в переменные: чтобы подогнать под сайт, достаточно поменять их здесь. */
+:root {
+    --bg: #f5f4f0;
+    --surface: #ffffff;
+    --ink: #141414;
+    --ink-2: #3d3b37;
+    --muted: #8a867c;
+    --line: #e4e1d8;
+    --soft: #ebe8df;
+    --ok: #1f7a4d;   --ok-bg: #e5f1e9;
+    --warn: #a15c00; --warn-bg: #fbefd8;
+    --bad: #b3261e;  --bad-bg: #f8e2e0;
+    --info: #1d5fa8; --info-bg: #e3edf8;
+    --r: 18px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.4; }
+a { color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+button:disabled { opacity: .5; }
 
-<header class="sticky top-0 z-20 bg-slate-900/95 backdrop-blur px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+       padding: 12px 16px; background: rgba(245,244,240,.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 800; font-size: 20px; letter-spacing: -.03em; line-height: 1.1; }
+.brand small { font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: 0; margin-left: 4px; }
+#who { font-size: 12px; color: var(--muted); margin-top: 2px; max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-right { display: flex; align-items: center; gap: 8px; }
+.pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); background: var(--surface); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.pill.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.pill.info { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.pill.ink { background: var(--ink); color: #fff; border-color: var(--ink); }
+.iconbtn { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 16px; line-height: 1; }
+
+main { padding: 20px 16px 110px; max-width: 560px; margin: 0 auto; }
+.sec { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.sec b { color: var(--ink); font-weight: 700; }
+h2.big { margin: 6px 0 18px; font-size: 32px; line-height: 1.04; letter-spacing: -.035em; font-weight: 800; }
+h2.big em { font-style: normal; color: var(--muted); }
+.lead { color: var(--ink-2); margin: -6px 0 18px; font-size: 14px; }
+
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ink-2); }
+.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; }
+.card.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+.card.dark .muted { color: #b9b5aa; }
+.card.tint { background: var(--soft); border-color: transparent; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.top-line { align-items: flex-start; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-variant-numeric: tabular-nums; }
+.mt { margin-top: 10px; } .mb { margin-bottom: 12px; }
+h3 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.02em; line-height: 1.2; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.tile.wide { grid-column: span 2; }
+.tile.hl { background: var(--ok-bg); border-color: transparent; }
+.tile .k { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tile .v { font-size: 21px; font-weight: 800; letter-spacing: -.02em; margin-top: 2px; }
+.mini { background: var(--bg); border-radius: 12px; padding: 8px; text-align: center; }
+.ok-t { color: var(--ok); }
+.mini .k { font-size: 10px; color: var(--muted); } .mini .v { font-size: 14px; font-weight: 700; }
+.bar { height: 6px; border-radius: 99px; background: var(--soft); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
+.bar.ok > i { background: var(--ok); }
+
+.box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.box .pain { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
+.box .offer { color: var(--ink-2); font-style: italic; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 16px; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; text-align: center; text-decoration: none; }
+.btn.out { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+.btn.soft { background: var(--soft); color: var(--ink); }
+.btn.ok { background: var(--ok); }
+.btn.warn { background: var(--warn-bg); color: var(--warn); }
+.btn.bad { background: var(--bad-bg); color: var(--bad); }
+.btn.block { width: 100%; }
+.btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.btns .span2 { grid-column: 1 / -1; }
+.links { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 0; font-size: 13px; font-weight: 600; }
+.links a { text-decoration: none; border-bottom: 1px solid var(--ink); }
+.links a::after { content: " ↗"; }
+
+input, textarea, select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--ink); }
+label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 10px 0 6px; }
+.linkbox { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; background: var(--bg); border: 1px dashed var(--muted); border-radius: 12px; padding: 10px 12px; margin: 12px 0; color: var(--ink); }
+
+nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex; background: rgba(245,244,240,.96); backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0); }
+nav button { position: relative; flex: 1; padding: 11px 2px 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
+nav button i { display: block; font-style: normal; font-size: 10px; letter-spacing: .08em; margin-bottom: 2px; opacity: .7; }
+nav button.on { color: var(--ink); }
+nav button.on::before { content: ""; position: absolute; top: 0; left: 24%; right: 24%; height: 2px; background: var(--ink); border-radius: 0 0 2px 2px; }
+.badge { position: absolute; top: 6px; right: 14%; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px; background: var(--bad); color: #fff; font-size: 10px; line-height: 17px; font-weight: 700; }
+.hidden { display: none !important; }
+
+.overlay { position: fixed; inset: 0; z-index: 30; background: rgba(20,20,20,.45); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: 100%; max-width: 560px; background: var(--bg); border-radius: 24px 24px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0)); max-height: 90vh; overflow-y: auto; }
+.sheet h3 { font-size: 22px; letter-spacing: -.03em; }
+.err { color: var(--bad); font-size: 12px; margin-top: 8px; }
+#toast { position: fixed; top: 70px; left: 0; right: 0; z-index: 40; display: flex; justify-content: center; pointer-events: none; padding: 0 16px; }
+#toastText { background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 9px 16px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.center { text-align: center; padding: 36px 8px; color: var(--muted); font-size: 14px; }
+.fatal { padding: 64px 24px; text-align: center; font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.fatal small { display: block; margin-top: 8px; font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--ink-2); }
+.step b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; line-height: 22px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header class="top">
     <div>
-        <h1 class="text-lg font-bold text-indigo-400 leading-tight">Numa Partners</h1>
-        <p id="who" class="text-xs text-slate-400">Авторизация...</p>
+        <div class="brand">Numa<small>Partners</small></div>
+        <div id="who">Авторизация...</div>
     </div>
-    <div class="text-right">
-        <span id="role" class="px-2 py-0.5 text-[11px] font-semibold rounded bg-indigo-900/50 text-indigo-300 border border-indigo-700/50"></span>
-        <p id="myPercent" class="text-[11px] text-slate-400 mt-1"></p>
+    <div class="top-right">
+        <span id="role" class="pill ink"></span>
+        <button class="iconbtn" data-act="compose" aria-label="Написать сообщение" title="Написать сообщение">✉</button>
     </div>
 </header>
 
-<main id="view" class="px-4 pt-4"></main>
-<nav id="tabs" class="fixed bottom-0 inset-x-0 z-20 bg-slate-900 border-t border-slate-800 flex"></nav>
+<main id="view"></main>
+<nav id="tabs"></nav>
 
-<div id="modal" class="hidden fixed inset-0 z-30 bg-black/70 flex items-end sm:items-center justify-center p-3">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
-        <h3 id="mTitle" class="font-bold text-slate-100"></h3>
-        <p id="mCompany" class="text-xs text-slate-400"></p>
+<div id="modal" class="overlay hidden">
+    <div class="sheet">
+        <h3 id="mTitle"></h3>
+        <p id="mCompany" class="muted small" style="margin:2px 0 0"></p>
         <div id="mAmountBox" class="hidden">
-            <label class="text-xs text-slate-400">Сумма сделки, ₽</label>
+            <label for="mAmount">Сумма сделки, ₽</label>
             <input id="mAmount" type="text" inputmode="decimal" placeholder="Например 50000">
         </div>
-        <div>
-            <label class="text-xs text-slate-400">Комментарий (необязательно)</label>
-            <textarea id="mComment" rows="3" maxlength="500"></textarea>
-        </div>
-        <p id="mError" class="text-xs text-red-400 hidden"></p>
-        <div class="grid grid-cols-2 gap-2">
-            <button data-act="modal-cancel" class="py-2 text-sm rounded-lg bg-slate-800 text-slate-300 border border-slate-700">Отмена</button>
-            <button id="mOk" data-act="modal-ok" class="py-2 text-sm font-bold rounded-lg bg-indigo-600 text-white">Сохранить</button>
+        <label for="mComment">Комментарий (необязательно)</label>
+        <textarea id="mComment" rows="3" maxlength="500"></textarea>
+        <p id="mError" class="err hidden"></p>
+        <div class="grid2 mt">
+            <button class="btn out" data-act="modal-cancel">Отмена</button>
+            <button id="mOk" class="btn" data-act="modal-ok">Сохранить</button>
         </div>
     </div>
 </div>
 
-<div id="toast" class="hidden fixed top-16 inset-x-0 z-40 flex justify-center px-4 pointer-events-none">
-    <div id="toastText" class="bg-slate-800 border border-slate-600 text-sm rounded-lg px-3 py-2 shadow-lg"></div>
+<div id="compose" class="overlay hidden">
+    <div class="sheet">
+        <div class="sec"><b>✉</b> / Сообщение</div>
+        <h3 style="margin-top:6px">Написать через бота</h3>
+        <label for="cTo">Кому</label>
+        <select id="cTo"></select>
+        <label for="cText">Текст</label>
+        <textarea id="cText" rows="5" maxlength="1000" placeholder="Сообщение придёт получателю в Telegram от имени бота, с вашим именем и кнопкой «Ответить»"></textarea>
+        <p class="muted small" style="margin:6px 0 0"><span id="cCount">0</span> / 1000</p>
+        <p id="cError" class="err hidden"></p>
+        <div class="grid2 mt">
+            <button class="btn out" data-act="compose-cancel">Закрыть</button>
+            <button id="cOk" class="btn" data-act="compose-send">Отправить</button>
+        </div>
+    </div>
 </div>
+
+<div id="toast" class="hidden"><div id="toastText"></div></div>
 
 <script>
 const tg = window.Telegram.WebApp;
 tg.expand();
 tg.ready();
+try { tg.setHeaderColor('#f5f4f0'); tg.setBackgroundColor('#f5f4f0'); tg.setBottomBarColor && tg.setBottomBarColor('#f5f4f0'); } catch (e) {}
 
 // ---------- утилиты ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -69,12 +195,13 @@ const tgLink = v => { v = String(v || '').trim(); if (/^https?:\/\//i.test(v)) r
 const telHref = p => 'tel:' + String(p || '').replace(/[^\d+]/g, '');
 const $ = id => document.getElementById(id);
 const view = $('view');
+const plural = (n, a, b, c) => { n = Math.abs(n) % 100; const m = n % 10; return (n > 10 && n < 20) ? c : m === 1 ? a : (m >= 2 && m <= 4) ? b : c; };
 
 function toast(text) {
     $('toastText').textContent = text;
     $('toast').classList.remove('hidden');
     clearTimeout(toast.t);
-    toast.t = setTimeout(() => $('toast').classList.add('hidden'), 2200);
+    toast.t = setTimeout(() => $('toast').classList.add('hidden'), 2400);
 }
 function haptic(kind = 'success') { try { tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
 function ask(text) {
@@ -100,14 +227,12 @@ async function api(path, opts = {}) {
     return data;
 }
 
-function fatal(html) {
-    document.body.innerHTML = `<div class="p-8 text-center text-red-400 font-bold">${html}</div>`;
-}
+function fatal(html) { document.body.innerHTML = `<div class="fatal">${html}</div>`; }
 const DENIED = {
-    not_registered: '❌ Вы не зарегистрированы.<br><span class="text-xs text-slate-400 font-normal">Нажмите /start в боте, чтобы отправить заявку.</span>',
-    pending: '⏳ Заявка на рассмотрении.<br><span class="text-xs text-slate-400 font-normal">Администратор скоро её проверит.</span>',
-    rejected: '❌ Заявка отклонена.',
-    banned: '⛔ Доступ закрыт администратором.',
+    not_registered: 'Вы не зарегистрированы<small>Нажмите /start в боте, чтобы отправить заявку.</small>',
+    pending: 'Заявка на рассмотрении<small>Администратор скоро её проверит.</small>',
+    rejected: 'Заявка отклонена',
+    banned: 'Доступ закрыт администратором',
 };
 
 // ---------- состояние ----------
@@ -115,124 +240,140 @@ let me = null, tab = 'leads', poolTier = 'A', mineStatus = 'In_Progress', period
 const leadsById = {};
 
 const STATUS_LABEL = { New: 'Новые', In_Progress: 'В работе', Postponed: 'Отложено', Lost: 'Отказ', Won: 'Сделки' };
-const USER_LABEL = {
-    approved: ['Активен', 'bg-emerald-950 text-emerald-400 border-emerald-800'],
-    pending: ['Ожидает', 'bg-amber-950 text-amber-400 border-amber-800'],
-    rejected: ['Отклонён', 'bg-slate-800 text-slate-400 border-slate-600'],
-    banned: ['Забанен', 'bg-red-950 text-red-400 border-red-800'],
-};
+const USER_LABEL = { approved: ['Активен', 'ok'], pending: ['Ожидает', 'warn'], rejected: ['Отклонён', ''], banned: ['Забанен', 'bad'] };
+
+const sec = (n, text) => `<div class="sec"><b>${esc(n)}</b> / ${esc(text)}</div>`;
+const heading = (n, text, title) => sec(n, text) + `<h2 class="big">${title}</h2>`;
 
 function chips(items, active, group) {
-    return `<div class="flex gap-2 mb-4 overflow-x-auto pb-1">` + items.map(([v, label]) =>
-        `<button data-act="chip" data-group="${group}" data-v="${esc(v)}" class="px-3 py-1.5 text-xs font-medium rounded-lg border whitespace-nowrap ${v === active ? 'chip-on' : 'chip-off'}">${esc(label)}</button>`
+    return `<div class="chips">` + items.map(([v, label]) =>
+        `<button class="chip ${v === active ? 'on' : ''}" data-act="chip" data-group="${group}" data-v="${esc(v)}">${esc(label)}</button>`
     ).join('') + `</div>`;
 }
 const PERIODS = [['week', 'Неделя'], ['month', 'Месяц'], ['all', 'Всё время']];
-const loading = () => `<div class="text-center py-8 text-slate-500 text-sm">Загрузка...</div>`;
-const empty = t => `<div class="text-center py-8 text-slate-500 text-sm">${t}</div>`;
-
-function tile(label, value, accent = '') {
-    return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-3 ${accent}">
-        <p class="text-[11px] text-slate-400">${esc(label)}</p><p class="text-lg font-bold mt-0.5">${value}</p></div>`;
-}
-function bar(value, max, color = 'bg-indigo-500') {
-    const w = max > 0 ? Math.max(2, Math.round(100 * value / max)) : 0;
-    return `<div class="h-1.5 rounded bg-slate-800 overflow-hidden"><div class="h-full ${color}" style="width:${w}%"></div></div>`;
-}
+const loading = () => `<div class="center">Загрузка...</div>`;
+const empty = t => `<div class="center">${t}</div>`;
+const tile = (label, value, cls = '') => `<div class="tile ${cls}"><div class="k">${esc(label)}</div><div class="v mono">${value}</div></div>`;
+const bar = (value, max, cls = '') => `<div class="bar ${cls}"><i style="width:${max > 0 ? Math.max(2, Math.round(100 * value / max)) : 0}%"></i></div>`;
+const mini = (k, v, cls = '') => `<div class="mini"><div class="k">${esc(k)}</div><div class="v mono ${cls}">${v}</div></div>`;
 
 // ---------- карточка лида ----------
 function leadCard(l, mode) {
     leadsById[l.Id] = l;
     const links = [];
-    if (safeUrl(l.web_url)) links.push(`<a href="${esc(safeUrl(l.web_url))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-slate-800 text-slate-300 rounded-lg border border-slate-700">🌐 Сайт</a>`);
-    if (tgLink(l.tg_acc)) links.push(`<a href="${esc(tgLink(l.tg_acc))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-sky-900/40 text-sky-300 rounded-lg border border-sky-700/50">💬 Telegram</a>`);
-    if (safeUrl(l.yandex_url)) links.push(`<a href="${esc(safeUrl(l.yandex_url))}" target="_blank" class="flex-1 text-center py-1.5 text-xs bg-red-950/40 text-red-300 rounded-lg border border-red-800/50">🗺 Карта</a>`);
+    if (safeUrl(l.web_url)) links.push(`<a href="${esc(safeUrl(l.web_url))}" target="_blank">Сайт</a>`);
+    if (tgLink(l.tg_acc)) links.push(`<a href="${esc(tgLink(l.tg_acc))}" target="_blank">Telegram</a>`);
+    if (safeUrl(l.yandex_url)) links.push(`<a href="${esc(safeUrl(l.yandex_url))}" target="_blank">Карта</a>`);
 
-    const btn = (act, label, cls) => `<button data-act="${act}" data-id="${l.Id}" class="py-2 text-xs font-bold rounded-lg ${cls}">${label}</button>`;
+    const btn = (act, label, cls = '') => `<button class="btn ${cls}" data-act="${act}" data-id="${l.Id}">${label}</button>`;
     let actions = '', extra = '';
     if (mode === 'pool') {
-        actions = btn('take', '🎯 Взять в работу', 'bg-indigo-600 text-white') + btn('won', '🎉 Сделка', 'bg-emerald-600 text-white');
+        actions = btn('take', 'Взять в работу') + btn('won', 'Сделка', 'ok');
     } else if (l.status === 'In_Progress') {
-        actions = btn('won', '🎉 Сделка', 'bg-emerald-600 text-white') + btn('postpone', '⏸ Отложить', 'bg-amber-600/30 text-amber-300 border border-amber-500/30') + btn('lost', '✖ Отказ', 'bg-slate-800 text-slate-300 border border-slate-700');
+        actions = btn('won', 'Сделка', 'ok') + btn('postpone', 'Отложить', 'warn') + btn('lost', 'Отказ', 'soft');
     } else if (l.status === 'Postponed') {
-        actions = btn('resume', '▶️ В работу', 'bg-indigo-600 text-white') + btn('lost', '✖ Отказ', 'bg-slate-800 text-slate-300 border border-slate-700');
+        actions = btn('resume', 'В работу') + btn('lost', 'Отказ', 'soft');
     } else if (l.status === 'Lost') {
-        actions = btn('resume', '↩ Вернуть в работу', 'bg-indigo-600 text-white');
+        actions = btn('resume', 'Вернуть в работу', 'span2');
     } else if (l.status === 'Won') {
         const p = (l.manager_percent !== null && l.manager_percent !== '' && l.manager_percent !== undefined) ? num(l.manager_percent) : num(me.percent);
         if (l.deal_amount !== null && l.deal_amount !== '' && l.deal_amount !== undefined) {
-            extra = `<div class="grid grid-cols-3 gap-2 mb-3 text-center">
-                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Сумма</p><p class="text-sm font-bold">${money(l.deal_amount)}</p></div>
-                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Процент</p><p class="text-sm font-bold">${pct(p)}</p></div>
-                <div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Выплата</p><p class="text-sm font-bold text-emerald-400">${money(num(l.deal_amount) * p / 100)}</p></div></div>`;
-            actions = btn('amount', '✏️ Изменить сумму', 'bg-slate-800 text-slate-300 border border-slate-700 col-span-2');
+            extra = `<div class="grid3 mt">${mini('Сумма', money(l.deal_amount))}${mini('Процент', pct(p))}${mini('Выплата', money(num(l.deal_amount) * p / 100), 'ok-t')}</div>`;
+            actions = btn('amount', 'Изменить сумму', 'soft span2');
         } else {
-            extra = `<p class="text-xs text-amber-400 mb-3">⚠️ Сумма сделки не указана — она не попадёт в статистику.</p>`;
-            actions = btn('amount', '💰 Указать сумму', 'bg-emerald-600 text-white col-span-2');
+            extra = `<p class="small mt" style="color:var(--warn)">Сумма сделки не указана: она не попадёт в статистику.</p>`;
+            actions = btn('amount', 'Указать сумму', 'ok span2');
         }
     }
-    return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg">
-        <div class="flex justify-between items-start mb-2">
-            <span class="text-xs font-bold px-2 py-0.5 rounded ${l.tier === 'A' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-blue-950 text-blue-400 border border-blue-800'}">Tier ${esc(l.tier || 'B')}</span>
-            <span class="text-xs text-slate-400">${esc(l.category)}</span>
+    return `<div class="card">
+        <div class="row top-line mb">
+            <span class="pill ${l.tier === 'A' ? 'ok' : 'info'}">Tier ${esc(l.tier || 'B')}</span>
+            <span class="muted small">${esc(l.category)}</span>
         </div>
-        <h3 class="font-bold text-base text-slate-100 mb-1">${esc(l.company_name)}</h3>
-        <p class="text-xs text-slate-400 mb-3">📍 ${esc(l.city || 'Москва')} | 📞 <a href="${esc(telHref(l.phone))}" class="text-indigo-400 font-mono">${esc(l.phone)}</a></p>
-        <div class="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 mb-3 text-xs">
-            <p class="text-amber-400/90 font-medium mb-1">💡 Боль: ${esc(l.pain_points || 'Не указана')}</p>
-            <p class="text-slate-300 italic">" ${esc(l.ai_offer || 'Нет предложения')} "</p>
+        <h3>${esc(l.company_name)}</h3>
+        <p class="muted small" style="margin:2px 0 12px">${esc(l.city || 'Москва')} · <a href="${esc(telHref(l.phone))}" class="mono" style="font-weight:600;color:var(--ink)">${esc(l.phone)}</a></p>
+        <div class="box">
+            <div class="pain">${esc(l.pain_points || 'Боль не указана')}</div>
+            <div class="offer">«${esc(l.ai_offer || 'Нет предложения')}»</div>
         </div>
-        ${l.last_comment ? `<p class="text-xs text-slate-300 mb-3">📝 ${esc(l.last_comment)}</p>` : ''}
+        ${l.last_comment ? `<p class="small mt" style="color:var(--ink-2)">Заметка: ${esc(l.last_comment)}</p>` : ''}
         ${extra}
-        ${links.length ? `<div class="flex gap-2 mb-3">${links.join('')}</div>` : ''}
-        ${actions ? `<div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">${actions}</div>` : ''}
+        ${links.length ? `<div class="links">${links.join('')}</div>` : ''}
+        ${actions ? `<div class="btns">${actions}</div>` : ''}
     </div>`;
 }
 
 // ---------- экраны ----------
 async function renderLeads(tk) {
-    const head = chips([['A', '🔥 Tier A (без сайта)'], ['B', 'Tier B (с сайтом)'], ['C', 'Tier C']], poolTier, 'pool');
+    const head = heading('01', 'Лиды', 'Свободные<br><em>клиенты</em>') + chips([['A', 'Tier A · без сайта'], ['B', 'Tier B · с сайтом'], ['C', 'Tier C']], poolTier, 'pool');
     view.innerHTML = head + loading();
     const leads = await api(`/api/leads?scope=pool&tier=${poolTier}`);
     if (tk !== token) return;
-    view.innerHTML = head + (leads.length ? `<div class="space-y-4">${leads.map(l => leadCard(l, 'pool')).join('')}</div>` : empty('Свободных лидов в этой категории нет ☕️'));
+    view.innerHTML = head + (leads.length ? `<div class="stack">${leads.map(l => leadCard(l, 'pool')).join('')}</div>` : empty('Свободных лидов в этой категории нет'));
 }
 
 async function renderMine(tk) {
-    const head = chips([['In_Progress', '⏳ В работе'], ['Postponed', '⏸ Отложено'], ['Won', '🎉 Сделки'], ['Lost', '✖ Отказы']], mineStatus, 'mine');
+    const head = heading('02', 'Мои лиды', 'Ваша<br><em>работа</em>') + chips([['In_Progress', 'В работе'], ['Postponed', 'Отложено'], ['Won', 'Сделки'], ['Lost', 'Отказы']], mineStatus, 'mine');
     view.innerHTML = head + loading();
     const leads = await api(`/api/leads?scope=mine&status=${mineStatus}`);
     if (tk !== token) return;
-    view.innerHTML = head + (leads.length ? `<div class="space-y-4">${leads.map(l => leadCard(l, 'mine')).join('')}</div>` : empty('Здесь пока пусто'));
+    view.innerHTML = head + (leads.length ? `<div class="stack">${leads.map(l => leadCard(l, 'mine')).join('')}</div>` : empty('Здесь пока пусто'));
 }
 
 async function renderCabinet(tk) {
-    const head = chips(PERIODS, period, 'period');
+    const head = heading('03', 'Кабинет', 'Ваши<br><em>результаты</em>') + chips(PERIODS, period, 'period');
     view.innerHTML = head + loading();
     const d = await api(`/api/me?period=${period}`);
     if (tk !== token) return;
     const s = d.stats || {};
     view.innerHTML = head + `
-        <div class="bg-gradient-to-br from-indigo-600/30 to-slate-900 border border-indigo-700/40 rounded-2xl p-4 mb-4">
-            <p class="text-xs text-slate-300">Ваш процент с продаж</p>
-            <p class="text-4xl font-extrabold text-indigo-300 mt-1">${pct(d.percent)}</p>
-            <p class="text-xs text-slate-400 mt-2">Заработано за период: <span class="text-emerald-400 font-bold">${money(s.payout)}</span></p>
+        <div class="card dark mb">
+            <div class="small muted">Ваш процент с продаж</div>
+            <div style="font-size:56px;font-weight:800;letter-spacing:-.04em;line-height:1.05">${pct(d.percent)}</div>
+            <div class="small muted mt">Заработано за период: <b style="color:#fff">${money(s.payout)}</b></div>
         </div>
-        <div class="grid grid-cols-2 gap-3 mb-4">
-            ${tile('Сумма ваших сделок', money(s.revenue))}
+        <div class="grid2 mb">
+            ${tile('Сумма сделок', money(s.revenue))}
             ${tile('Оплаченных сделок', num(s.paid_deals))}
             ${tile('Взято лидов', num(s.taken))}
             ${tile('Конверсия', num(s.conversion) + '%')}
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
-            <p class="text-slate-400 mb-1">Ваши лиды (всё время)</p>
-            <p class="flex justify-between"><span>⏳ В работе</span><b>${num(s.in_progress)}</b></p>
-            <p class="flex justify-between"><span>⏸ Отложено</span><b>${num(s.postponed)}</b></p>
-            <p class="flex justify-between"><span>🎉 Сделки</span><b>${num(s.won)}</b></p>
-            <p class="flex justify-between"><span>✖ Отказы</span><b>${num(s.lost)}</b></p>
+        <div class="card">
+            <div class="sec mb">Ваши лиды · всё время</div>
+            ${[['В работе', s.in_progress], ['Отложено', s.postponed], ['Сделки', s.won], ['Отказы', s.lost]].map(([k, v]) =>
+                `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span>${k}</span><b class="mono">${num(v)}</b></div>`).join('')}
         </div>
-        ${num(s.pending_amount) ? `<p class="text-xs text-amber-400 mt-3">⚠️ Сделок без суммы: ${num(s.pending_amount)}. Укажите сумму во вкладке «Мои → Сделки».</p>` : ''}`;
+        ${num(s.pending_amount) ? `<p class="small mt" style="color:var(--warn)">Сделок без суммы: ${num(s.pending_amount)}. Укажите сумму в «Мои → Сделки».</p>` : ''}`;
 }
+
+async function renderReferral(tk) {
+    view.innerHTML = heading('04', 'Друзья', 'Приведи друга,<br><em>получи бонус</em>') + loading();
+    const r = await api('/api/referral');
+    if (tk !== token) return;
+    const p = pct(r.percent), days = num(r.days);
+    const head = heading('04', 'Друзья', `Приведи друга,<br><em>получи ${esc(p)}</em>`);
+    const how = `<div class="card tint mb stack" style="gap:10px">
+        <div class="step"><b>1</b><span>Отправьте другу свою ссылку.</span></div>
+        <div class="step"><b>2</b><span>Он запускает бота и проходит одобрение администратора.</span></div>
+        <div class="step"><b>3</b><span>Первые ${days} ${plural(days, 'день', 'дня', 'дней')} после одобрения вы получаете ${esc(p)} от суммы каждой его сделки.</span></div>
+    </div>`;
+    const link = r.link ? `<div class="card mb">
+        <div class="sec">Ваша ссылка</div>
+        <div class="linkbox" id="refLink">${esc(r.link)}</div>
+        <div class="grid2"><button class="btn" data-act="ref-share">Отправить другу</button><button class="btn out" data-act="ref-copy">Скопировать</button></div>
+    </div>` : `<div class="card mb"><p class="small muted" style="margin:0">Ссылка появится, как только бот узнает своё имя. Если она не появилась, администратору нужно задать BOT_USERNAME в настройках.</p></div>`;
+    refLink = r.link || '';
+    const stats = `<div class="grid3 mb">${mini('Приглашено', num(r.invited))}${mini('Сделок', num(r.deals))}${mini('Бонус', money(r.earned), 'ok-t')}</div>`;
+    const friends = (r.friends || []).length ? `<div class="stack">${r.friends.map(f => {
+        const [label, cls] = USER_LABEL[f.status] || [f.status, ''];
+        const left = f.status === 'approved' && f.days_left !== null && f.days_left !== undefined
+            ? (num(f.days_left) > 0 ? `бонус ещё ${num(f.days_left)} ${plural(num(f.days_left), 'день', 'дня', 'дней')}` : 'бонусный месяц закончился') : '';
+        return `<div class="card"><div class="row top-line"><div><h3>${esc(f.name)}</h3><div class="muted small">${f.username ? '@' + esc(f.username) : 'без username'}${left ? ' · ' + esc(left) : ''}</div></div><span class="pill ${cls}">${esc(label)}</span></div>
+            <div class="row mt small"><span class="muted">Сделок: <b class="mono" style="color:var(--ink)">${num(f.deals)}</b></span><span class="muted">Вам: <b class="mono" style="color:var(--ok)">${money(f.earned)}</b></span></div></div>`;
+    }).join('')}</div>` : empty('Пока никто не приглашён');
+    view.innerHTML = head + how + link + stats + `<div class="sec mb">Ваши друзья</div>` + friends;
+}
+let refLink = '';
 
 async function loadAdmin() {
     admin = await api(`/api/admin/stats?period=${period}`);
@@ -242,7 +383,7 @@ async function loadAdmin() {
 }
 
 async function renderStats(tk) {
-    const head = chips(PERIODS, period, 'period');
+    const head = heading('03', 'Статистика', 'Компания<br><em>в цифрах</em>') + chips(PERIODS, period, 'period');
     view.innerHTML = head + loading();
     await loadAdmin();
     if (tk !== token) return;
@@ -252,80 +393,84 @@ async function renderStats(tk) {
     const ranked = admin.managers.filter(m => m.revenue > 0 || m.taken > 0);
     const maxRev = Math.max(1, ...ranked.map(m => m.revenue));
     view.innerHTML = head + `
-        <div class="grid grid-cols-2 gap-3 mb-3">
-            ${tile('Выручка (сумма сделок)', money(t.revenue))}
-            ${tile('Выплаты менеджерам', money(t.payout))}
-            ${tile('Чистый доход компании', money(t.net), 'col-span-2 border-emerald-700/50 bg-emerald-950/20')}
+        <div class="card dark mb">
+            <div class="small muted">Чистый доход компании</div>
+            <div style="font-size:42px;font-weight:800;letter-spacing:-.04em;line-height:1.1" class="mono">${money(t.net)}</div>
+            <div class="small muted mt">Выручка ${money(t.revenue)} · выплаты ${money(t.payout)}${num(t.referral) ? ' · рефбонусы ' + money(t.referral) : ''}</div>
+        </div>
+        <div class="grid2 mb">
             ${tile('Оплаченных сделок', num(t.paid_deals))}
             ${tile('Конверсия', num(t.conversion) + '%')}
         </div>
-        ${num(t.pending_amount) ? `<p class="text-xs text-amber-400 mb-3">⚠️ Сделок без суммы: ${num(t.pending_amount)} — они не входят в выручку.</p>` : ''}
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3">
-            <p class="text-xs text-slate-400 mb-2">Пул свободных лидов</p>
-            <div class="grid grid-cols-3 gap-2 text-center">
-                ${['A', 'B', 'C'].map(k => `<div class="bg-slate-950/60 rounded-lg p-2"><p class="text-[10px] text-slate-400">Tier ${k}</p><p class="text-lg font-bold">${num((t.pool_by_tier || {})[k])}</p></div>`).join('')}
-            </div>
+        ${num(t.pending_amount) ? `<p class="small mb" style="color:var(--warn)">Сделок без суммы: ${num(t.pending_amount)}. Они не входят в выручку.</p>` : ''}
+        <div class="card mb">
+            <div class="sec mb">Пул свободных лидов</div>
+            <div class="grid3">${['A', 'B', 'C'].map(k => mini('Tier ' + k, num((t.pool_by_tier || {})[k]))).join('')}</div>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-3 space-y-2">
-            <p class="text-xs text-slate-400">Воронка (всё время)</p>
-            ${statuses.map(s => `<div><div class="flex justify-between text-xs mb-1"><span>${STATUS_LABEL[s]}</span><b>${num(t.by_status[s])}</b></div>${bar(num(t.by_status[s]), maxS, s === 'Won' ? 'bg-emerald-500' : 'bg-indigo-500')}</div>`).join('')}
+        <div class="card mb stack" style="gap:12px">
+            <div class="sec">Воронка · всё время</div>
+            ${statuses.map(s => `<div><div class="row small" style="margin-bottom:5px"><span>${STATUS_LABEL[s]}</span><b class="mono">${num(t.by_status[s])}</b></div>${bar(num(t.by_status[s]), maxS, s === 'Won' ? 'ok' : '')}</div>`).join('')}
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-3">
-            <p class="text-xs text-slate-400">Рейтинг менеджеров</p>
+        <div class="card stack" style="gap:14px">
+            <div class="sec">Рейтинг менеджеров</div>
             ${ranked.length ? ranked.map(m => `<div>
-                <div class="flex justify-between text-sm"><span class="font-semibold">${esc(m.name)}</span><span class="font-bold">${money(m.revenue)}</span></div>
-                ${bar(m.revenue, maxRev, 'bg-emerald-500')}
-                <p class="text-[11px] text-slate-400 mt-1">Чистыми компании: <span class="text-emerald-400">${money(m.net)}</span> · выплата ${money(m.payout)} (${pct(m.percent)}) · сделок ${m.paid_deals} · конверсия ${m.conversion}%</p>
+                <div class="row"><b>${esc(m.name)}</b><b class="mono">${money(m.revenue)}</b></div>
+                <div style="margin:6px 0">${bar(m.revenue, maxRev, 'ok')}</div>
+                <div class="muted small">Компании чистыми <b style="color:var(--ok)">${money(m.net)}</b> · выплата ${money(m.payout)} (${pct(m.percent)}) · сделок ${m.paid_deals} · конверсия ${m.conversion}%${num(m.ref_bonus) ? ' · рефбонус ' + money(m.ref_bonus) : ''}</div>
             </div>`).join('') : empty('Пока нет данных')}
         </div>`;
 }
 
 async function renderManagers(tk) {
-    view.innerHTML = loading();
+    const head = heading('04', 'Команда', 'Менеджеры');
+    view.innerHTML = head + loading();
     await loadAdmin();
     if (tk !== token) return;
     const order = { pending: 0, approved: 1, rejected: 2, banned: 3 };
     const list = [...admin.managers].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.revenue - a.revenue);
     const adminSet = new Set((admin.admin_usernames || []).map(x => x.toLowerCase()));
-    view.innerHTML = `<p class="text-xs text-slate-400 mb-3">Зарегистрировано: ${list.length}</p><div class="space-y-3">` + list.map(m => {
+    view.innerHTML = head + `<p class="muted small" style="margin:-8px 0 14px">Зарегистрировано: ${list.length}</p><div class="stack">` + list.map(m => {
         const isAdm = m.role === 'admin' || adminSet.has((m.username || '').toLowerCase());
-        const [label, cls] = isAdm ? ['Админ', 'bg-indigo-950 text-indigo-300 border-indigo-800'] : (USER_LABEL[m.status] || [m.status, 'bg-slate-800 text-slate-400 border-slate-600']);
-        const b = (st, text, c) => `<button data-act="user-status" data-tg="${esc(m.tg_id)}" data-st="${st}" class="py-2 text-xs font-bold rounded-lg ${c}">${text}</button>`;
+        const [label, cls] = isAdm ? ['Админ', 'ink'] : (USER_LABEL[m.status] || [m.status, '']);
+        const b = (st, text, c = '') => `<button class="btn ${c}" data-act="user-status" data-tg="${esc(m.tg_id)}" data-st="${st}">${text}</button>`;
         let controls = '';
         if (!isAdm) {
-            if (m.status === 'pending') controls = b('approved', '✅ Одобрить', 'bg-emerald-600 text-white') + b('rejected', '❌ Отклонить', 'bg-slate-800 text-slate-300 border border-slate-700');
-            else if (m.status === 'approved') controls = b('banned', '⛔ Забанить', 'bg-red-900/60 text-red-200 border border-red-700/60 col-span-2');
-            else if (m.status === 'rejected') controls = b('approved', '✅ Одобрить', 'bg-emerald-600 text-white') + b('banned', '⛔ Забанить', 'bg-red-900/60 text-red-200 border border-red-700/60');
-            else controls = b('approved', '♻️ Разбанить', 'bg-emerald-600 text-white col-span-2');
+            if (m.status === 'pending') controls = b('approved', 'Одобрить', 'ok') + b('rejected', 'Отклонить', 'soft');
+            else if (m.status === 'approved') controls = b('banned', 'Забанить', 'bad span2');
+            else if (m.status === 'rejected') controls = b('approved', 'Одобрить', 'ok') + b('banned', 'Забанить', 'bad');
+            else controls = b('approved', 'Разбанить', 'ok span2');
         }
         const percentBox = (!isAdm && m.status === 'approved') ? `
-            <div class="flex items-center gap-2 mb-3">
-                <span class="text-xs text-slate-400 whitespace-nowrap">Процент:</span>
-                <input id="pct-${esc(m.tg_id)}" type="text" inputmode="decimal" value="${num(m.percent)}" class="!w-20 text-center">
-                <button data-act="user-percent" data-tg="${esc(m.tg_id)}" class="px-3 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white">Сохранить</button>
+            <div class="row mt" style="gap:8px">
+                <span class="muted small" style="white-space:nowrap">Процент</span>
+                <input id="pct-${esc(m.tg_id)}" type="text" inputmode="decimal" value="${num(m.percent)}" style="width:80px;text-align:center">
+                <button class="btn out" data-act="user-percent" data-tg="${esc(m.tg_id)}">Сохранить</button>
             </div>` : '';
-        return `<div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <div class="flex justify-between items-start mb-1">
-                <div><p class="font-bold text-sm">${esc(m.name)}</p><p class="text-xs text-slate-400">${m.username ? '@' + esc(m.username) : 'без username'} · ID ${esc(m.tg_id)}</p></div>
-                <span class="text-[11px] font-semibold px-2 py-0.5 rounded border ${cls}">${esc(label)}</span>
+        const facts = [];
+        if (m.taken || m.revenue) facts.push(`В работе ${m.in_progress} · сделок ${m.won} · выручка ${money(m.revenue)} · чистыми ${money(m.net)}`);
+        if (m.invited) facts.push(`Приглашено: ${num(m.invited)}${num(m.ref_bonus) ? ' · рефбонус ' + money(m.ref_bonus) : ''}`);
+        return `<div class="card">
+            <div class="row top-line">
+                <div><h3>${esc(m.name)}</h3><div class="muted small">${m.username ? '@' + esc(m.username) : 'без username'} · ID ${esc(m.tg_id)}</div></div>
+                <span class="pill ${cls}">${esc(label)}</span>
             </div>
-            ${(m.taken || m.revenue) ? `<p class="text-[11px] text-slate-400 mb-3">В работе ${m.in_progress} · сделок ${m.won} · выручка ${money(m.revenue)} · чистыми ${money(m.net)}</p>` : '<div class="mb-2"></div>'}
+            ${facts.length ? `<p class="muted small" style="margin:10px 0 0">${facts.map(esc).join('<br>')}</p>` : ''}
             ${percentBox}
-            ${controls ? `<div class="grid grid-cols-2 gap-2">${controls}</div>` : ''}
+            ${controls ? `<div class="btns">${controls}</div>` : ''}
         </div>`;
     }).join('') + `</div>`;
 }
 
 // ---------- вкладки ----------
+function tabList() {
+    const items = [['leads', 'Лиды'], ['mine', 'Мои']];
+    if (me.is_admin) items.push(['stats', 'Статистика'], ['mgr', 'Команда'], ['ref', 'Друзья']);
+    else items.push(['cab', 'Кабинет'], ['ref', 'Друзья']);
+    return items;
+}
 function buildTabs() {
-    const items = [['leads', '🔥', 'Лиды'], ['mine', '📋', 'Мои']];
-    if (me.is_admin) items.push(['stats', '📊', 'Статистика'], ['mgr', '👥', 'Менеджеры']);
-    else items.push(['cab', '💼', 'Кабинет']);
-    $('tabs').innerHTML = items.map(([id, icon, label]) =>
-        `<button data-act="tab" data-v="${id}" class="relative flex-1 py-2 text-[11px] ${id === tab ? 'text-indigo-300' : 'text-slate-400'}">
-            <div class="text-lg leading-none">${icon}</div>${label}
-            ${id === 'mgr' ? '<span id="mgrBadge" class="hidden absolute top-1 right-[22%] min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] leading-4"></span>' : ''}
-        </button>`).join('');
+    $('tabs').innerHTML = tabList().map(([id, label], i) =>
+        `<button class="${id === tab ? 'on' : ''}" data-act="tab" data-v="${id}"><i>0${i + 1}</i>${label}${id === 'mgr' ? '<span id="mgrBadge" class="badge hidden"></span>' : ''}</button>`).join('');
     if (admin) {
         const pending = admin.managers.filter(m => m.status === 'pending').length;
         const badge = $('mgrBadge');
@@ -333,7 +478,7 @@ function buildTabs() {
     }
 }
 
-const RENDERERS = { leads: renderLeads, mine: renderMine, cab: renderCabinet, stats: renderStats, mgr: renderManagers };
+const RENDERERS = { leads: renderLeads, mine: renderMine, cab: renderCabinet, stats: renderStats, mgr: renderManagers, ref: renderReferral };
 
 async function render() {
     const tk = ++token;
@@ -343,11 +488,11 @@ async function render() {
     } catch (e) {
         if (tk !== token) return;
         if (e.status === 401 || e.status === 403) return fatal(DENIED[e.message] || esc(e.message));
-        view.innerHTML = `<div class="text-center py-8 text-red-400 text-sm">${esc(e.message)}<br><button data-act="retry" class="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200">Повторить</button></div>`;
+        view.innerHTML = `<div class="center" style="color:var(--bad)">${esc(e.message)}<br><button class="btn out mt" data-act="retry">Повторить</button></div>`;
     }
 }
 
-// ---------- модальное окно сделки / комментария ----------
+// ---------- окно сделки / комментария ----------
 let modal = null;
 function openModal(opts) {
     modal = opts;
@@ -388,6 +533,55 @@ async function submitModal() {
     }
 }
 
+// ---------- сообщения ----------
+async function openCompose() {
+    $('cError').classList.add('hidden');
+    $('cText').value = '';
+    $('cCount').textContent = '0';
+    $('cTo').innerHTML = '<option value="">Загрузка...</option>';
+    $('compose').classList.remove('hidden');
+    try {
+        const v = await api('/api/messages/recipients');
+        const opts = [];
+        if (v.can_broadcast) opts.push(['all', 'Все участники']);
+        if (v.has_admins) opts.push(['admins', 'Администраторы']);
+        (v.people || []).forEach(p => opts.push([p.tg_id, p.name + (p.username ? ' (@' + p.username + ')' : '') + (p.role === 'admin' ? ' · админ' : '')]));
+        $('cTo').innerHTML = opts.length
+            ? opts.map(([val, label]) => `<option value="${esc(val)}">${esc(label)}</option>`).join('')
+            : '<option value="">Некому писать</option>';
+    } catch (e) {
+        $('cError').textContent = e.message; $('cError').classList.remove('hidden');
+    }
+}
+async function sendCompose() {
+    const to = $('cTo').value, text = $('cText').value.trim();
+    if (!to) { $('cError').textContent = 'Выберите получателя'; $('cError').classList.remove('hidden'); return; }
+    if (!text) { $('cError').textContent = 'Напишите текст сообщения'; $('cError').classList.remove('hidden'); return; }
+    $('cOk').disabled = true;
+    try {
+        const r = await api('/api/messages/send', { method: 'POST', body: JSON.stringify({ to, text }) });
+        haptic('success');
+        $('compose').classList.add('hidden');
+        const failed = (r.failed || []).length;
+        toast(`Доставлено: ${num(r.sent)}` + (failed ? `, не доставлено: ${failed}` : ''));
+    } catch (e) {
+        $('cError').textContent = e.message; $('cError').classList.remove('hidden');
+    } finally {
+        $('cOk').disabled = false;
+    }
+}
+$('cText').addEventListener('input', () => { $('cCount').textContent = String($('cText').value.length); });
+
+function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise((res, rej) => {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy') ? res() : rej(); } catch (e) { rej(e); }
+        ta.remove();
+    });
+}
+
 // ---------- обработка кликов ----------
 document.addEventListener('click', async ev => {
     const el = ev.target.closest('[data-act]');
@@ -406,12 +600,21 @@ document.addEventListener('click', async ev => {
             }
             case 'take': await sendUpdate({ lead_id: id, status: 'In_Progress' }); toast('Лид взят в работу'); render(); break;
             case 'resume': await sendUpdate({ lead_id: id, status: 'In_Progress' }); toast('Лид снова в работе'); render(); break;
-            case 'won': openModal({ id, status: 'Won', needAmount: true, title: '🎉 Сделка', company: lead.company_name }); break;
-            case 'amount': openModal({ id, status: 'Won', needAmount: true, amount: lead.deal_amount || '', title: '💰 Сумма сделки', company: lead.company_name }); break;
-            case 'postpone': openModal({ id, status: 'Postponed', title: '⏸ Отложить лид', company: lead.company_name }); break;
-            case 'lost': openModal({ id, status: 'Lost', title: '✖ Отказ', company: lead.company_name }); break;
+            case 'won': openModal({ id, status: 'Won', needAmount: true, title: 'Сделка', company: lead.company_name }); break;
+            case 'amount': openModal({ id, status: 'Won', needAmount: true, amount: lead.deal_amount || '', title: 'Сумма сделки', company: lead.company_name }); break;
+            case 'postpone': openModal({ id, status: 'Postponed', title: 'Отложить лид', company: lead.company_name }); break;
+            case 'lost': openModal({ id, status: 'Lost', title: 'Отказ', company: lead.company_name }); break;
             case 'modal-cancel': closeModal(); break;
             case 'modal-ok': await submitModal(); break;
+            case 'compose': await openCompose(); break;
+            case 'compose-cancel': $('compose').classList.add('hidden'); break;
+            case 'compose-send': await sendCompose(); break;
+            case 'ref-copy': await copyText(refLink); haptic('success'); toast('Ссылка скопирована'); break;
+            case 'ref-share': {
+                const url = 'https://t.me/share/url?url=' + encodeURIComponent(refLink) + '&text=' + encodeURIComponent('Присоединяйся к Numa Partners: продавай услуги и зарабатывай процент с каждой сделки.');
+                if (tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url, '_blank');
+                break;
+            }
             case 'user-status': {
                 const st = el.dataset.st;
                 if (st === 'banned' && !(await ask('Забанить пользователя? Он потеряет доступ.'))) break;
@@ -438,9 +641,8 @@ async function init() {
     } catch (e) {
         return fatal(e.status === 401 ? esc(e.message) : (DENIED[e.message] || esc(e.message)));
     }
-    $('who').textContent = `${me.name}${me.username ? ' (@' + me.username + ')' : ''}`;
+    $('who').textContent = `${me.name}${me.username ? ' (@' + me.username + ')' : ''}${me.is_admin ? '' : ' · ' + pct(me.percent)}`;
     $('role').textContent = me.is_admin ? 'ADMIN' : 'MANAGER';
-    $('myPercent').textContent = me.is_admin ? '' : `Ваш процент: ${pct(me.percent)}`;
     render();
     if (me.is_admin) loadAdmin().then(buildTabs).catch(() => {});
 }
