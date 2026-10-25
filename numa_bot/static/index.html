@@ -3,38 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#f5f4f0">
+<meta name="theme-color" content="#ebe8df">
 <title>Numa Partners</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-/* Стиль сайта Numa: тёплый светлый фон, крупные заголовки, нумерованные разделы, чёрные «таблетки» вместо ярких цветов.
-   Все цвета и радиусы собраны в переменные: чтобы подогнать под сайт, достаточно поменять их здесь. */
+/* Стиль Numa: тёплая светлая палитра, крупные заголовки, нумерованные разделы, цвета логотипа как акценты.
+   Все цвета и радиусы собраны в переменные: чтобы подогнать оформление, достаточно поменять их здесь. */
 :root {
-    --bg: #f5f4f0;
-    --surface: #ffffff;
-    --ink: #141414;
-    --ink-2: #3d3b37;
-    --muted: #8a867c;
-    --line: #e4e1d8;
-    --soft: #ebe8df;
-    --ok: #1f7a4d;   --ok-bg: #e5f1e9;
-    --warn: #a15c00; --warn-bg: #fbefd8;
-    --bad: #b3261e;  --bad-bg: #f8e2e0;
-    --info: #1d5fa8; --info-bg: #e3edf8;
-    --r: 18px;
+    --bg: #ebe8df;
+    --surface: #f8f7f2;
+    --ink: #17171a;
+    --ink-2: #3a3833;
+    --muted: #77736a;
+    --line: #d9d5c9;
+    --soft: #e1ddd1;
+    --blue: #2b46c6;  --blue-bg: #dce3f6;
+    --red: #cb5648;   --red-bg: #f2dcd8;
+    --green: #8aa826; --green-bg: #e3ebcd;
+    --ok: #1f7a4d;    --ok-bg: #d9eadf;
+    --warn: #9a5a00;  --warn-bg: #f3e4c2;
+    --bad: #b3261e;   --bad-bg: #f1d8d4;
+    --info: #1d5fa8;  --info-bg: #d9e4f2;
+    --r: 20px;
+    --shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 10px 28px -16px rgba(50,42,20,.28);
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.4; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
-button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; transition: transform .12s ease, background .15s ease, opacity .15s ease; }
+button:active { transform: scale(.97); }
 button:disabled { opacity: .5; }
+svg { display: block; }
 
+/* шапка */
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-       padding: 12px 16px; background: rgba(245,244,240,.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 800; font-size: 20px; letter-spacing: -.03em; line-height: 1.1; }
+       padding: 10px 16px; background: rgba(235,232,223,.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.brandrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.logo { width: 34px; height: 34px; flex: none; }
+.brand { font-weight: 800; font-size: 19px; letter-spacing: -.03em; line-height: 1.1; }
 .brand small { font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: 0; margin-left: 4px; }
-#who { font-size: 12px; color: var(--muted); margin-top: 2px; max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#who { font-size: 12px; color: var(--muted); margin-top: 1px; max-width: 46vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top-right { display: flex; align-items: center; gap: 8px; }
 .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); background: var(--surface); }
 .pill.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
@@ -42,100 +51,143 @@ button:disabled { opacity: .5; }
 .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
 .pill.info { background: var(--info-bg); color: var(--info); border-color: transparent; }
 .pill.ink { background: var(--ink); color: #fff; border-color: var(--ink); }
-.iconbtn { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 16px; line-height: 1; }
+.iconbtn { width: 40px; height: 40px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; box-shadow: var(--shadow); }
+.iconbtn svg { width: 19px; height: 19px; }
 
-main { padding: 20px 16px 110px; max-width: 560px; margin: 0 auto; }
-.sec { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+main { padding: 22px 16px 112px; max-width: 560px; margin: 0 auto; }
+#view > * { animation: rise .35s ease both; }
+.stack > * { animation: rise .4s ease both; }
+.stack > *:nth-child(2) { animation-delay: .05s; } .stack > *:nth-child(3) { animation-delay: .1s; }
+.stack > *:nth-child(4) { animation-delay: .15s; } .stack > *:nth-child(n+5) { animation-delay: .2s; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.sec { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .sec b { color: var(--ink); font-weight: 700; }
-h2.big { margin: 6px 0 18px; font-size: 32px; line-height: 1.04; letter-spacing: -.035em; font-weight: 800; }
+.sec::before { content: ""; width: 14px; height: 6px; border-radius: 2px; background: linear-gradient(90deg, var(--blue) 0 33%, var(--red) 33% 66%, var(--green) 66%); }
+h2.big { margin: 8px 0 18px; font-size: 33px; line-height: 1.03; letter-spacing: -.04em; font-weight: 800; }
 h2.big em { font-style: normal; color: var(--muted); }
-.lead { color: var(--ink-2); margin: -6px 0 18px; font-size: 14px; }
 
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: none; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
 .chips::-webkit-scrollbar { display: none; }
-.chip { flex: none; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ink-2); }
-.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip { flex: none; padding: 8px 15px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ink-2); }
+.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; box-shadow: 0 6px 16px -8px rgba(0,0,0,.5); }
 
 .stack { display: flex; flex-direction: column; gap: 14px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; }
-.card.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+.card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow); }
+.card.tA { box-shadow: inset 4px 0 0 var(--green), var(--shadow); }
+.card.tB { box-shadow: inset 4px 0 0 var(--blue), var(--shadow); }
+.card.tC { box-shadow: inset 4px 0 0 var(--red), var(--shadow); }
+.card.dark { overflow: hidden; background: linear-gradient(140deg, #19191c 0%, #2c2b28 100%); color: #fff; border-color: transparent; }
 .card.dark .muted { color: #b9b5aa; }
-.card.tint { background: var(--soft); border-color: transparent; }
+.card.dark .wm { position: absolute; right: -14px; bottom: -18px; width: 120px; opacity: .16; pointer-events: none; }
+.card.tint { background: var(--soft); border-color: transparent; box-shadow: none; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .top-line { align-items: flex-start; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .mono { font-variant-numeric: tabular-nums; }
-.mt { margin-top: 10px; } .mb { margin-bottom: 12px; }
+.mt { margin-top: 10px; } .mb { margin-bottom: 14px; }
 h3 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.02em; line-height: 1.2; }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
-.tile.wide { grid-column: span 2; }
-.tile.hl { background: var(--ok-bg); border-color: transparent; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 13px; box-shadow: var(--shadow); }
 .tile .k { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.tile .v { font-size: 21px; font-weight: 800; letter-spacing: -.02em; margin-top: 2px; }
-.mini { background: var(--bg); border-radius: 12px; padding: 8px; text-align: center; }
+.tile .v { font-size: 22px; font-weight: 800; letter-spacing: -.02em; margin-top: 3px; }
 .ok-t { color: var(--ok); }
+.mini { background: var(--bg); border-radius: 12px; padding: 9px 6px; text-align: center; }
+.solo .mini { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 11px 6px; }
 .mini .k { font-size: 10px; color: var(--muted); } .mini .v { font-size: 14px; font-weight: 700; }
-.bar { height: 6px; border-radius: 99px; background: var(--soft); overflow: hidden; }
+.bar { height: 7px; border-radius: 99px; background: var(--soft); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
-.bar.ok > i { background: var(--ok); }
+.bar.ok > i { background: linear-gradient(90deg, var(--green), var(--ok)); }
 
-.box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.ava { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 14px; }
+.who { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.who > div { min-width: 0; }
+
+.box { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px; font-size: 13px; }
 .box .pain { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
 .box .offer { color: var(--ink-2); font-style: italic; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 16px; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; text-align: center; text-decoration: none; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 16px; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; text-align: center; text-decoration: none; }
 .btn.out { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
 .btn.soft { background: var(--soft); color: var(--ink); }
 .btn.ok { background: var(--ok); }
 .btn.warn { background: var(--warn-bg); color: var(--warn); }
 .btn.bad { background: var(--bad-bg); color: var(--bad); }
 .btn.block { width: 100%; }
-.btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .btns .span2 { grid-column: 1 / -1; }
-.links { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 0; font-size: 13px; font-weight: 600; }
-.links a { text-decoration: none; border-bottom: 1px solid var(--ink); }
+.links { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 0; font-size: 13px; font-weight: 600; }
+.links a { text-decoration: none; border-bottom: 1.5px solid var(--ink); }
 .links a::after { content: " ↗"; }
 
-input, textarea, select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
-input:focus, textarea:focus, select:focus { outline: none; border-color: var(--ink); }
-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 10px 0 6px; }
-.linkbox { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; background: var(--bg); border: 1px dashed var(--muted); border-radius: 12px; padding: 10px 12px; margin: 12px 0; color: var(--ink); }
+input, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+input:focus, textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(23,23,26,.08); }
+label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
+.linkbox { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; background: var(--bg); border: 1px dashed var(--muted); border-radius: 14px; padding: 11px 13px; margin: 12px 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--ink-2); }
+.step b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; line-height: 22px; text-align: center; }
 
-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex; background: rgba(245,244,240,.96); backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0); }
-nav button { position: relative; flex: 1; padding: 11px 2px 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
-nav button i { display: block; font-style: normal; font-size: 10px; letter-spacing: .08em; margin-bottom: 2px; opacity: .7; }
+/* нижнее меню */
+nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex; padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0)); background: rgba(235,232,223,.94); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
+nav button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 2px; font-size: 11px; font-weight: 600; color: var(--muted); }
+nav button .ic { width: 46px; height: 28px; border-radius: 99px; display: grid; place-items: center; transition: background .2s ease; }
+nav button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 nav button.on { color: var(--ink); }
-nav button.on::before { content: ""; position: absolute; top: 0; left: 24%; right: 24%; height: 2px; background: var(--ink); border-radius: 0 0 2px 2px; }
-.badge { position: absolute; top: 6px; right: 14%; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px; background: var(--bad); color: #fff; font-size: 10px; line-height: 17px; font-weight: 700; }
+nav button.on .ic { background: var(--ink); color: #fff; }
+.badge { position: absolute; top: 0; right: calc(50% - 30px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px; background: var(--bad); color: #fff; font-size: 10px; line-height: 17px; font-weight: 700; }
 .hidden { display: none !important; }
 
-.overlay { position: fixed; inset: 0; z-index: 30; background: rgba(20,20,20,.45); display: flex; align-items: flex-end; justify-content: center; }
-.sheet { width: 100%; max-width: 560px; background: var(--bg); border-radius: 24px 24px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0)); max-height: 90vh; overflow-y: auto; }
-.sheet h3 { font-size: 22px; letter-spacing: -.03em; }
+/* окна */
+.overlay { position: fixed; inset: 0; z-index: 30; background: rgba(20,20,20,.45); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s ease both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.sheet { width: 100%; max-width: 560px; background: var(--bg); border-radius: 28px 28px 0 0; padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0)); max-height: 92vh; overflow-y: auto; animation: up .28s ease both; }
+@keyframes up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+.grab { width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 0 auto 14px; }
+.sheet h3 { font-size: 24px; letter-spacing: -.03em; margin-top: 6px; }
 .err { color: var(--bad); font-size: 12px; margin-top: 8px; }
 #toast { position: fixed; top: 70px; left: 0; right: 0; z-index: 40; display: flex; justify-content: center; pointer-events: none; padding: 0 16px; }
-#toastText { background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 9px 16px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+#toastText { background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 10px 18px; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: rise .25s ease both; }
 .center { text-align: center; padding: 36px 8px; color: var(--muted); font-size: 14px; }
 .fatal { padding: 64px 24px; text-align: center; font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
 .fatal small { display: block; margin-top: 8px; font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
-.step { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--ink-2); }
-.step b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; line-height: 22px; text-align: center; }
+
+/* загрузка */
+.skel { height: 120px; border-radius: var(--r); background: linear-gradient(100deg, var(--soft) 30%, #ece9df 50%, var(--soft) 70%); background-size: 200% 100%; animation: shine 1.3s linear infinite; }
+.skel.s { height: 56px; }
+@keyframes shine { to { background-position: -200% 0; } }
+
+/* выбор получателя */
+.people { display: flex; flex-direction: column; gap: 6px; max-height: 210px; overflow-y: auto; margin: 10px 0 4px; padding-right: 2px; }
+.person { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; text-align: left; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.person .pn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.person .pn b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person .pn small { color: var(--muted); font-size: 12px; }
+.person .tick { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+.person.on { border-color: var(--ink); background: #fff; }
+.person.on .tick { border-color: var(--ink); background: var(--ink) radial-gradient(circle, #fff 0 32%, transparent 36%); }
+.selbar { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--ink); color: #fff; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+.selbar span { color: #b9b5aa; }
 </style>
 </head>
 <body>
 
 <header class="top">
-    <div>
-        <div class="brand">Numa<small>Partners</small></div>
-        <div id="who">Авторизация...</div>
+    <div class="brandrow">
+        <img class="logo" src="/static/logo.svg" alt="Numa" onerror="this.style.display='none'">
+        <div style="min-width:0">
+            <div class="brand">Numa<small>Partners</small></div>
+            <div id="who">Авторизация...</div>
+        </div>
     </div>
     <div class="top-right">
         <span id="role" class="pill ink"></span>
-        <button class="iconbtn" data-act="compose" aria-label="Написать сообщение" title="Написать сообщение">✉</button>
+        <button class="iconbtn" data-act="compose" aria-label="Написать сообщение" title="Написать сообщение">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7.5l8 5.5 8-5.5"/></svg>
+        </button>
     </div>
 </header>
 
@@ -144,6 +196,7 @@ nav button.on::before { content: ""; position: absolute; top: 0; left: 24%; righ
 
 <div id="modal" class="overlay hidden">
     <div class="sheet">
+        <div class="grab"></div>
         <h3 id="mTitle"></h3>
         <p id="mCompany" class="muted small" style="margin:2px 0 0"></p>
         <div id="mAmountBox" class="hidden">
@@ -162,13 +215,17 @@ nav button.on::before { content: ""; position: absolute; top: 0; left: 24%; righ
 
 <div id="compose" class="overlay hidden">
     <div class="sheet">
-        <div class="sec"><b>✉</b> / Сообщение</div>
-        <h3 style="margin-top:6px">Написать через бота</h3>
-        <label for="cTo">Кому</label>
-        <select id="cTo"></select>
-        <label for="cText">Текст</label>
-        <textarea id="cText" rows="5" maxlength="1000" placeholder="Сообщение придёт получателю в Telegram от имени бота, с вашим именем и кнопкой «Ответить»"></textarea>
-        <p class="muted small" style="margin:6px 0 0"><span id="cCount">0</span> / 1000</p>
+        <div class="grab"></div>
+        <div class="sec"><b>Сообщение</b></div>
+        <h3>Кому написать?</h3>
+        <div id="cQuick" class="chips wrap" style="margin:12px 0 0"></div>
+        <input id="cSearch" type="text" placeholder="Найти по имени" autocomplete="off" style="margin-top:6px">
+        <div id="cPeople" class="people"></div>
+        <div id="cSel" class="selbar hidden"></div>
+        <label for="cText">Текст сообщения</label>
+        <textarea id="cText" rows="4" maxlength="1000" placeholder="Напишите сообщение. Получатель увидит его в Telegram с вашим именем и кнопкой «Ответить»"></textarea>
+        <div class="chips" id="cTpl" style="margin:8px 0 0"></div>
+        <p class="muted small" style="margin:2px 0 0"><span id="cCount">0</span> / 1000</p>
         <p id="cError" class="err hidden"></p>
         <div class="grid2 mt">
             <button class="btn out" data-act="compose-cancel">Закрыть</button>
@@ -183,7 +240,7 @@ nav button.on::before { content: ""; position: absolute; top: 0; left: 24%; righ
 const tg = window.Telegram.WebApp;
 tg.expand();
 tg.ready();
-try { tg.setHeaderColor('#f5f4f0'); tg.setBackgroundColor('#f5f4f0'); tg.setBottomBarColor && tg.setBottomBarColor('#f5f4f0'); } catch (e) {}
+try { tg.setHeaderColor('#ebe8df'); tg.setBackgroundColor('#ebe8df'); tg.setBottomBarColor && tg.setBottomBarColor('#ebe8df'); } catch (e) {}
 
 // ---------- утилиты ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -196,6 +253,21 @@ const telHref = p => 'tel:' + String(p || '').replace(/[^\d+]/g, '');
 const $ = id => document.getElementById(id);
 const view = $('view');
 const plural = (n, a, b, c) => { n = Math.abs(n) % 100; const m = n % 10; return (n > 10 && n < 20) ? c : m === 1 ? a : (m >= 2 && m <= 4) ? b : c; };
+const AVA = [['#dce3f6', '#2b46c6'], ['#f2dcd8', '#b6463c'], ['#e3ebcd', '#587a12']];
+function avatar(name, seed) {
+    const parts = String(name || '?').replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/);
+    const ini = ((parts[0] || '?')[0] + (parts.length > 1 ? parts[1][0] : '')).toUpperCase();
+    const [bg, fg] = AVA[Math.abs(parseInt(seed, 10) || String(seed || name).length) % AVA.length];
+    return `<span class="ava" style="background:${bg};color:${fg}">${esc(ini)}</span>`;
+}
+const ICONS = {
+    leads: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6"/>',
+    mine: '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M8 12.5l3 3 5-6"/>',
+    stats: '<path d="M5 20V11M12 20V4M19 20v-6"/>',
+    mgr: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.2a3 3 0 010 5.6M18 14.3c1.7.8 3 2.7 3 5.7"/>',
+    cab: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/>',
+    ref: '<rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M12 9v11M3.5 13.5h17"/><path d="M12 9C10.8 5.8 7 5.3 7 7.6 7 9 9.5 9 12 9zm0 0c1.2-3.2 5-3.7 5-1.4C17 9 14.5 9 12 9z"/>',
+};
 
 function toast(text) {
     $('toastText').textContent = text;
@@ -220,7 +292,10 @@ async function api(path, opts = {}) {
     try { data = await res.json(); } catch (e) {}
     if (!res.ok) {
         const d = data && data.detail;
-        const err = new Error(typeof d === 'string' ? d : 'Ошибка ' + res.status);
+        let msg = typeof d === 'string' ? d : 'Ошибка ' + res.status;
+        // «Not Found» от самого сервера: страница новая, а бот на Raspberry Pi ещё старый
+        if (res.status === 404 && msg === 'Not Found') msg = 'Эта функция ещё не включена на сервере. Обновите бота: git pull и перезапуск.';
+        const err = new Error(msg);
         err.status = res.status;
         throw err;
     }
@@ -236,7 +311,7 @@ const DENIED = {
 };
 
 // ---------- состояние ----------
-let me = null, tab = 'leads', poolTier = 'A', mineStatus = 'In_Progress', period = 'all', admin = null, token = 0;
+let me = null, tab = 'leads', poolTier = 'B', mineStatus = 'In_Progress', period = 'all', admin = null, token = 0;
 const leadsById = {};
 
 const STATUS_LABEL = { New: 'Новые', In_Progress: 'В работе', Postponed: 'Отложено', Lost: 'Отказ', Won: 'Сделки' };
@@ -251,11 +326,12 @@ function chips(items, active, group) {
     ).join('') + `</div>`;
 }
 const PERIODS = [['week', 'Неделя'], ['month', 'Месяц'], ['all', 'Всё время']];
-const loading = () => `<div class="center">Загрузка...</div>`;
+const loading = () => `<div class="stack"><div class="skel"></div><div class="skel"></div><div class="skel s"></div></div>`;
 const empty = t => `<div class="center">${t}</div>`;
 const tile = (label, value, cls = '') => `<div class="tile ${cls}"><div class="k">${esc(label)}</div><div class="v mono">${value}</div></div>`;
 const bar = (value, max, cls = '') => `<div class="bar ${cls}"><i style="width:${max > 0 ? Math.max(2, Math.round(100 * value / max)) : 0}%"></i></div>`;
 const mini = (k, v, cls = '') => `<div class="mini"><div class="k">${esc(k)}</div><div class="v mono ${cls}">${v}</div></div>`;
+const WM = '<img class="wm" src="/static/logo.svg" alt="" onerror="this.style.display=\'none\'">';
 
 // ---------- карточка лида ----------
 function leadCard(l, mode) {
@@ -285,9 +361,10 @@ function leadCard(l, mode) {
             actions = btn('amount', 'Указать сумму', 'ok span2');
         }
     }
-    return `<div class="card">
+    const t = ['A', 'B', 'C'].includes(l.tier) ? l.tier : 'B';
+    return `<div class="card t${t}">
         <div class="row top-line mb">
-            <span class="pill ${l.tier === 'A' ? 'ok' : 'info'}">Tier ${esc(l.tier || 'B')}</span>
+            <span class="pill ${t === 'A' ? 'ok' : t === 'B' ? 'info' : 'bad'}">Tier ${esc(t)}</span>
             <span class="muted small">${esc(l.category)}</span>
         </div>
         <h3>${esc(l.company_name)}</h3>
@@ -305,7 +382,7 @@ function leadCard(l, mode) {
 
 // ---------- экраны ----------
 async function renderLeads(tk) {
-    const head = heading('01', 'Лиды', 'Свободные<br><em>клиенты</em>') + chips([['A', 'Tier A · без сайта'], ['B', 'Tier B · с сайтом'], ['C', 'Tier C']], poolTier, 'pool');
+    const head = heading('01', 'Лиды', 'Свободные<br><em>клиенты</em>') + chips([['B', 'Tier B · с сайтом'], ['A', 'Tier A · без сайта'], ['C', 'Tier C']], poolTier, 'pool');
     view.innerHTML = head + loading();
     const leads = await api(`/api/leads?scope=pool&tier=${poolTier}`);
     if (tk !== token) return;
@@ -328,8 +405,9 @@ async function renderCabinet(tk) {
     const s = d.stats || {};
     view.innerHTML = head + `
         <div class="card dark mb">
+            ${WM}
             <div class="small muted">Ваш процент с продаж</div>
-            <div style="font-size:56px;font-weight:800;letter-spacing:-.04em;line-height:1.05">${pct(d.percent)}</div>
+            <div style="font-size:58px;font-weight:800;letter-spacing:-.04em;line-height:1.05">${pct(d.percent)}</div>
             <div class="small muted mt">Заработано за период: <b style="color:#fff">${money(s.payout)}</b></div>
         </div>
         <div class="grid2 mb">
@@ -341,39 +419,40 @@ async function renderCabinet(tk) {
         <div class="card">
             <div class="sec mb">Ваши лиды · всё время</div>
             ${[['В работе', s.in_progress], ['Отложено', s.postponed], ['Сделки', s.won], ['Отказы', s.lost]].map(([k, v]) =>
-                `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span>${k}</span><b class="mono">${num(v)}</b></div>`).join('')}
+                `<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span>${k}</span><b class="mono">${num(v)}</b></div>`).join('')}
         </div>
         ${num(s.pending_amount) ? `<p class="small mt" style="color:var(--warn)">Сделок без суммы: ${num(s.pending_amount)}. Укажите сумму в «Мои → Сделки».</p>` : ''}`;
 }
 
+let refLink = '';
 async function renderReferral(tk) {
-    view.innerHTML = heading('04', 'Друзья', 'Приведи друга,<br><em>получи бонус</em>') + loading();
+    const no = me.is_admin ? '05' : '04';
+    view.innerHTML = heading(no, 'Друзья', 'Приведи друга,<br><em>получи бонус</em>') + loading();
     const r = await api('/api/referral');
     if (tk !== token) return;
     const p = pct(r.percent), days = num(r.days);
-    const head = heading('04', 'Друзья', `Приведи друга,<br><em>получи ${esc(p)}</em>`);
-    const how = `<div class="card tint mb stack" style="gap:10px">
+    const head = heading(no, 'Друзья', `Приведи друга,<br><em>получи ${esc(p)}</em>`);
+    const how = `<div class="card tint mb stack" style="gap:12px">
         <div class="step"><b>1</b><span>Отправьте другу свою ссылку.</span></div>
         <div class="step"><b>2</b><span>Он запускает бота и проходит одобрение администратора.</span></div>
         <div class="step"><b>3</b><span>Первые ${days} ${plural(days, 'день', 'дня', 'дней')} после одобрения вы получаете ${esc(p)} от суммы каждой его сделки.</span></div>
     </div>`;
+    refLink = r.link || '';
     const link = r.link ? `<div class="card mb">
         <div class="sec">Ваша ссылка</div>
-        <div class="linkbox" id="refLink">${esc(r.link)}</div>
+        <div class="linkbox">${esc(r.link)}</div>
         <div class="grid2"><button class="btn" data-act="ref-share">Отправить другу</button><button class="btn out" data-act="ref-copy">Скопировать</button></div>
-    </div>` : `<div class="card mb"><p class="small muted" style="margin:0">Ссылка появится, как только бот узнает своё имя. Если она не появилась, администратору нужно задать BOT_USERNAME в настройках.</p></div>`;
-    refLink = r.link || '';
-    const stats = `<div class="grid3 mb">${mini('Приглашено', num(r.invited))}${mini('Сделок', num(r.deals))}${mini('Бонус', money(r.earned), 'ok-t')}</div>`;
+    </div>` : `<div class="card mb"><p class="small muted" style="margin:0">Ссылка появится, как только бот узнает своё имя. Если её нет, администратору нужно задать BOT_USERNAME в настройках бота.</p></div>`;
+    const stats = `<div class="grid3 solo mb">${mini('Приглашено', num(r.invited))}${mini('Сделок', num(r.deals))}${mini('Бонус', money(r.earned), 'ok-t')}</div>`;
     const friends = (r.friends || []).length ? `<div class="stack">${r.friends.map(f => {
         const [label, cls] = USER_LABEL[f.status] || [f.status, ''];
         const left = f.status === 'approved' && f.days_left !== null && f.days_left !== undefined
             ? (num(f.days_left) > 0 ? `бонус ещё ${num(f.days_left)} ${plural(num(f.days_left), 'день', 'дня', 'дней')}` : 'бонусный месяц закончился') : '';
-        return `<div class="card"><div class="row top-line"><div><h3>${esc(f.name)}</h3><div class="muted small">${f.username ? '@' + esc(f.username) : 'без username'}${left ? ' · ' + esc(left) : ''}</div></div><span class="pill ${cls}">${esc(label)}</span></div>
+        return `<div class="card"><div class="row top-line"><div class="who">${avatar(f.name, f.tg_id)}<div><h3>${esc(f.name)}</h3><div class="muted small">${f.username ? '@' + esc(f.username) : 'без username'}${left ? ' · ' + esc(left) : ''}</div></div></div><span class="pill ${cls}">${esc(label)}</span></div>
             <div class="row mt small"><span class="muted">Сделок: <b class="mono" style="color:var(--ink)">${num(f.deals)}</b></span><span class="muted">Вам: <b class="mono" style="color:var(--ok)">${money(f.earned)}</b></span></div></div>`;
     }).join('')}</div>` : empty('Пока никто не приглашён');
     view.innerHTML = head + how + link + stats + `<div class="sec mb">Ваши друзья</div>` + friends;
 }
-let refLink = '';
 
 async function loadAdmin() {
     admin = await api(`/api/admin/stats?period=${period}`);
@@ -394,6 +473,7 @@ async function renderStats(tk) {
     const maxRev = Math.max(1, ...ranked.map(m => m.revenue));
     view.innerHTML = head + `
         <div class="card dark mb">
+            ${WM}
             <div class="small muted">Чистый доход компании</div>
             <div style="font-size:42px;font-weight:800;letter-spacing:-.04em;line-height:1.1" class="mono">${money(t.net)}</div>
             <div class="small muted mt">Выручка ${money(t.revenue)} · выплаты ${money(t.payout)}${num(t.referral) ? ' · рефбонусы ' + money(t.referral) : ''}</div>
@@ -407,15 +487,15 @@ async function renderStats(tk) {
             <div class="sec mb">Пул свободных лидов</div>
             <div class="grid3">${['A', 'B', 'C'].map(k => mini('Tier ' + k, num((t.pool_by_tier || {})[k]))).join('')}</div>
         </div>
-        <div class="card mb stack" style="gap:12px">
+        <div class="card mb stack" style="gap:13px">
             <div class="sec">Воронка · всё время</div>
             ${statuses.map(s => `<div><div class="row small" style="margin-bottom:5px"><span>${STATUS_LABEL[s]}</span><b class="mono">${num(t.by_status[s])}</b></div>${bar(num(t.by_status[s]), maxS, s === 'Won' ? 'ok' : '')}</div>`).join('')}
         </div>
-        <div class="card stack" style="gap:14px">
+        <div class="card stack" style="gap:15px">
             <div class="sec">Рейтинг менеджеров</div>
             ${ranked.length ? ranked.map(m => `<div>
-                <div class="row"><b>${esc(m.name)}</b><b class="mono">${money(m.revenue)}</b></div>
-                <div style="margin:6px 0">${bar(m.revenue, maxRev, 'ok')}</div>
+                <div class="row"><div class="who">${avatar(m.name, m.tg_id)}<b>${esc(m.name)}</b></div><b class="mono">${money(m.revenue)}</b></div>
+                <div style="margin:8px 0 6px">${bar(m.revenue, maxRev, 'ok')}</div>
                 <div class="muted small">Компании чистыми <b style="color:var(--ok)">${money(m.net)}</b> · выплата ${money(m.payout)} (${pct(m.percent)}) · сделок ${m.paid_deals} · конверсия ${m.conversion}%${num(m.ref_bonus) ? ' · рефбонус ' + money(m.ref_bonus) : ''}</div>
             </div>`).join('') : empty('Пока нет данных')}
         </div>`;
@@ -443,7 +523,7 @@ async function renderManagers(tk) {
         const percentBox = (!isAdm && m.status === 'approved') ? `
             <div class="row mt" style="gap:8px">
                 <span class="muted small" style="white-space:nowrap">Процент</span>
-                <input id="pct-${esc(m.tg_id)}" type="text" inputmode="decimal" value="${num(m.percent)}" style="width:80px;text-align:center">
+                <input id="pct-${esc(m.tg_id)}" type="text" inputmode="decimal" value="${num(m.percent)}" style="width:84px;text-align:center">
                 <button class="btn out" data-act="user-percent" data-tg="${esc(m.tg_id)}">Сохранить</button>
             </div>` : '';
         const facts = [];
@@ -451,10 +531,10 @@ async function renderManagers(tk) {
         if (m.invited) facts.push(`Приглашено: ${num(m.invited)}${num(m.ref_bonus) ? ' · рефбонус ' + money(m.ref_bonus) : ''}`);
         return `<div class="card">
             <div class="row top-line">
-                <div><h3>${esc(m.name)}</h3><div class="muted small">${m.username ? '@' + esc(m.username) : 'без username'} · ID ${esc(m.tg_id)}</div></div>
+                <div class="who">${avatar(m.name, m.tg_id)}<div><h3>${esc(m.name)}</h3><div class="muted small">${m.username ? '@' + esc(m.username) : 'без username'} · ID ${esc(m.tg_id)}</div></div></div>
                 <span class="pill ${cls}">${esc(label)}</span>
             </div>
-            ${facts.length ? `<p class="muted small" style="margin:10px 0 0">${facts.map(esc).join('<br>')}</p>` : ''}
+            ${facts.length ? `<p class="muted small" style="margin:12px 0 0">${facts.map(esc).join('<br>')}</p>` : ''}
             ${percentBox}
             ${controls ? `<div class="btns">${controls}</div>` : ''}
         </div>`;
@@ -469,8 +549,8 @@ function tabList() {
     return items;
 }
 function buildTabs() {
-    $('tabs').innerHTML = tabList().map(([id, label], i) =>
-        `<button class="${id === tab ? 'on' : ''}" data-act="tab" data-v="${id}"><i>0${i + 1}</i>${label}${id === 'mgr' ? '<span id="mgrBadge" class="badge hidden"></span>' : ''}</button>`).join('');
+    $('tabs').innerHTML = tabList().map(([id, label]) =>
+        `<button class="${id === tab ? 'on' : ''}" data-act="tab" data-v="${id}"><span class="ic"><svg viewBox="0 0 24 24">${ICONS[id]}</svg></span>${label}${id === 'mgr' ? '<span id="mgrBadge" class="badge hidden"></span>' : ''}</button>`).join('');
     if (admin) {
         const pending = admin.managers.filter(m => m.status === 'pending').length;
         const badge = $('mgrBadge');
@@ -534,32 +614,58 @@ async function submitModal() {
 }
 
 // ---------- сообщения ----------
+const TEMPLATES = ['Привет! Есть минутка?', 'Как дела с лидами?', 'Нужна помощь по сделке?', 'Спасибо, отличная работа!'];
+let cmp = { to: '', people: [], canAll: false, hasAdmins: false };
+
+function composeTarget() {
+    if (cmp.to === 'all') return ['Все участники', `${cmp.people.length} ${plural(cmp.people.length, 'человек', 'человека', 'человек')}`];
+    if (cmp.to === 'admins') return ['Администраторы', ''];
+    const p = cmp.people.find(x => x.tg_id === cmp.to);
+    return p ? [p.name, p.username ? '@' + p.username : ''] : ['', ''];
+}
+function paintCompose() {
+    const q = $('cSearch').value.trim().toLowerCase();
+    const quick = [];
+    if (cmp.canAll) quick.push(['all', 'Все участники']);
+    if (cmp.hasAdmins) quick.push(['admins', 'Администраторы']);
+    $('cQuick').innerHTML = quick.map(([v, label]) =>
+        `<button class="chip ${cmp.to === v ? 'on' : ''}" data-act="pick" data-v="${v}">${esc(label)}</button>`).join('');
+    const list = cmp.people.filter(p => !q || (p.name + ' ' + p.username).toLowerCase().includes(q));
+    $('cPeople').innerHTML = list.length ? list.map(p =>
+        `<button class="person ${cmp.to === p.tg_id ? 'on' : ''}" data-act="pick" data-v="${esc(p.tg_id)}">
+            ${avatar(p.name, p.tg_id)}
+            <span class="pn"><b>${esc(p.name)}</b><small>${p.username ? '@' + esc(p.username) : 'без username'}${p.role === 'admin' ? ' · админ' : ''}</small></span>
+            <span class="tick"></span></button>`).join('')
+        : `<div class="center" style="padding:14px">${cmp.people.length ? 'Никого не нашли' : 'Некому писать'}</div>`;
+    const [name, sub] = composeTarget();
+    $('cSel').classList.toggle('hidden', !cmp.to);
+    $('cSel').innerHTML = cmp.to ? `<b>${esc(name)}</b><span>${esc(sub)}</span>` : '';
+    $('cOk').textContent = cmp.to === 'all' ? 'Отправить всем' : 'Отправить';
+}
 async function openCompose() {
+    cmp = { to: '', people: [], canAll: false, hasAdmins: false };
     $('cError').classList.add('hidden');
-    $('cText').value = '';
-    $('cCount').textContent = '0';
-    $('cTo').innerHTML = '<option value="">Загрузка...</option>';
+    $('cText').value = ''; $('cSearch').value = ''; $('cCount').textContent = '0';
+    $('cTpl').innerHTML = TEMPLATES.map((t, i) => `<button class="chip" data-act="tpl" data-v="${i}">${esc(t)}</button>`).join('');
+    $('cPeople').innerHTML = '<div class="skel s"></div>';
+    $('cQuick').innerHTML = '';
     $('compose').classList.remove('hidden');
     try {
         const v = await api('/api/messages/recipients');
-        const opts = [];
-        if (v.can_broadcast) opts.push(['all', 'Все участники']);
-        if (v.has_admins) opts.push(['admins', 'Администраторы']);
-        (v.people || []).forEach(p => opts.push([p.tg_id, p.name + (p.username ? ' (@' + p.username + ')' : '') + (p.role === 'admin' ? ' · админ' : '')]));
-        $('cTo').innerHTML = opts.length
-            ? opts.map(([val, label]) => `<option value="${esc(val)}">${esc(label)}</option>`).join('')
-            : '<option value="">Некому писать</option>';
+        cmp = { to: '', people: v.people || [], canAll: !!v.can_broadcast, hasAdmins: !!v.has_admins };
+        paintCompose();
     } catch (e) {
+        $('cPeople').innerHTML = '';
         $('cError').textContent = e.message; $('cError').classList.remove('hidden');
     }
 }
 async function sendCompose() {
-    const to = $('cTo').value, text = $('cText').value.trim();
-    if (!to) { $('cError').textContent = 'Выберите получателя'; $('cError').classList.remove('hidden'); return; }
+    const text = $('cText').value.trim();
+    if (!cmp.to) { $('cError').textContent = 'Выберите получателя'; $('cError').classList.remove('hidden'); return; }
     if (!text) { $('cError').textContent = 'Напишите текст сообщения'; $('cError').classList.remove('hidden'); return; }
     $('cOk').disabled = true;
     try {
-        const r = await api('/api/messages/send', { method: 'POST', body: JSON.stringify({ to, text }) });
+        const r = await api('/api/messages/send', { method: 'POST', body: JSON.stringify({ to: cmp.to, text }) });
         haptic('success');
         $('compose').classList.add('hidden');
         const failed = (r.failed || []).length;
@@ -571,6 +677,7 @@ async function sendCompose() {
     }
 }
 $('cText').addEventListener('input', () => { $('cCount').textContent = String($('cText').value.length); });
+$('cSearch').addEventListener('input', paintCompose);
 
 function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
@@ -609,6 +716,8 @@ document.addEventListener('click', async ev => {
             case 'compose': await openCompose(); break;
             case 'compose-cancel': $('compose').classList.add('hidden'); break;
             case 'compose-send': await sendCompose(); break;
+            case 'pick': cmp.to = el.dataset.v; $('cError').classList.add('hidden'); paintCompose(); break;
+            case 'tpl': $('cText').value = TEMPLATES[Number(el.dataset.v)] || ''; $('cCount').textContent = String($('cText').value.length); break;
             case 'ref-copy': await copyText(refLink); haptic('success'); toast('Ссылка скопирована'); break;
             case 'ref-share': {
                 const url = 'https://t.me/share/url?url=' + encodeURIComponent(refLink) + '&text=' + encodeURIComponent('Присоединяйся к Numa Partners: продавай услуги и зарабатывай процент с каждой сделки.');

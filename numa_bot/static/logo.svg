@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 250" role="img" aria-label="Numa">
+  <rect x="8" y="8" width="80" height="80" fill="#2b46c6"/>
+  <polygon points="88,96 8,170 8,250 88,250" fill="#2b46c6"/>
+  <polygon points="92,88 170,8 250,8 250,88" fill="#cb5648"/>
+  <rect x="172" y="90" width="78" height="160" fill="#9dbf2c"/>
+</svg>
