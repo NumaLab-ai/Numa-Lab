@@ -49,6 +49,7 @@ def _empty_row(tg_id, user):
         "taken": 0, "in_progress": 0, "postponed": 0, "lost": 0, "won": 0,
         "pending_amount": 0, "paid_deals": 0,
         "revenue": 0.0, "payout": 0.0, "net": 0.0, "conversion": 0.0,
+        "ref_bonus": 0.0, "ref_cost": 0.0, "invited": 0,
     }
 
 
@@ -59,11 +60,16 @@ def compute_stats(leads, users, period="all", now=None, default_percent=DEFAULT_
     users_by_id = {str(u.get("telegram_id")): u for u in users if u.get("telegram_id") not in (None, "")}
     rows = {tg_id: _empty_row(tg_id, u) for tg_id, u in users_by_id.items()}
 
+    for u in users:  # сколько людей пригласил каждый
+        rid = str(u.get("referrer_id") or "")
+        if rid in rows:
+            rows[rid]["invited"] += 1
+
     totals = {
         "leads_total": len(leads),
         "by_status": {},
         "pool_by_tier": {},
-        "revenue": 0.0, "payout": 0.0, "net": 0.0,
+        "revenue": 0.0, "payout": 0.0, "net": 0.0, "referral": 0.0,
         "paid_deals": 0, "pending_amount": 0, "won": 0, "taken": 0, "conversion": 0.0,
     }
 
@@ -115,16 +121,27 @@ def compute_stats(leads, users, period="all", now=None, default_percent=DEFAULT_
             row["payout"] += payout
             row["paid_deals"] += 1
 
-    totals["net"] = totals["revenue"] - totals["payout"]
+        ref_id = str(lead.get("referrer_id") or "").strip()
+        if ref_id:  # бонус приглашающему (платит компания, процент менеджера не страдает)
+            bonus = amount * num(lead.get("referral_percent")) / 100.0
+            totals["referral"] += bonus
+            if row is not None:
+                row["ref_cost"] += bonus
+            ref_row = rows.get(ref_id)
+            if ref_row is None:
+                ref_row = rows[ref_id] = _empty_row(ref_id, None)
+            ref_row["ref_bonus"] += bonus
+
+    totals["net"] = totals["revenue"] - totals["payout"] - totals["referral"]
     totals["conversion"] = round(100.0 * totals["won"] / totals["taken"], 1) if totals["taken"] else 0.0
 
     for row in rows.values():
-        row["net"] = row["revenue"] - row["payout"]
+        row["net"] = row["revenue"] - row["payout"] - row["ref_cost"]
         row["conversion"] = round(100.0 * row["won"] / row["taken"], 1) if row["taken"] else 0.0
-        for key in ("revenue", "payout", "net"):
+        for key in ("revenue", "payout", "net", "ref_bonus", "ref_cost"):
             row[key] = round(row[key], 2)
 
-    for key in ("revenue", "payout", "net"):
+    for key in ("revenue", "payout", "net", "referral"):
         totals[key] = round(totals[key], 2)
 
     managers = sorted(rows.values(), key=lambda r: (-r["revenue"], -r["won"], -r["taken"], r["name"]))

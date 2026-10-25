@@ -1,5 +1,6 @@
 """Работа с NocoDB. Все функции при сбое сети или базы бросают NocoError,
 чтобы «база недоступна» не путалась с «ничего не найдено»."""
+import logging
 import os
 import requests
 from dotenv import load_dotenv
@@ -16,6 +17,12 @@ TIMEOUT = 10
 
 # Поля, нужные для статистики (без тяжёлых текстовых колонок)
 STATS_FIELDS = "Id,status,tier,assigned_manager,deal_amount,won_at,manager_percent"
+STATS_FIELDS_REF = STATS_FIELDS + ",referrer_id,referral_percent"
+
+# Колонки реферальной программы. Если их ещё нет в таблице, основная работа не должна ломаться:
+# при отказе базы запись повторяется без них (создать колонки: python setup_schema.py).
+OPTIONAL_USER_FIELDS = ("referrer_id", "approved_at")
+OPTIONAL_LEAD_FIELDS = ("referrer_id", "referral_percent")
 
 
 class NocoError(Exception):
@@ -70,6 +77,23 @@ def _list_all(table_id, where=None, fields=None, sort=None, page=1000, max_rows=
     return rows
 
 
+def _is_schema_error(e: "NocoError") -> bool:
+    text = str(e)
+    return " 422" in text or " 400" in text or "not found" in text.lower()
+
+
+def _write(method: str, table_id: str, item: dict, optional=()):
+    """Запись одной строки; при ошибке схемы повтор без необязательных колонок."""
+    try:
+        _check(_request(method, _records_url(table_id), json=[item]))
+    except NocoError as e:
+        extras = [k for k in optional if k in item]
+        if not extras or not _is_schema_error(e):
+            raise
+        logging.warning("В таблице нет колонок %s (python setup_schema.py): записываю без них", extras)
+        _check(_request(method, _records_url(table_id), json=[{k: v for k, v in item.items() if k not in optional}]))
+
+
 # ---------- Пользователи ----------
 
 def get_user_by_tg_id(telegram_id: int):
@@ -92,21 +116,23 @@ def get_admin_ids():
     return ids
 
 
-def create_user_request(telegram_id: int, username: str, full_name: str, role: str = "manager", status: str = "pending"):
-    payload = [{
+def create_user_request(telegram_id: int, username: str, full_name: str, role: str = "manager", status: str = "pending",
+                        referrer_id=None):
+    item = {
         "telegram_id": telegram_id,
         "username": username or "",
         "full_name": full_name or "Manager",
         "role": role,
         "status": status,
-    }]
-    _check(_request("POST", _records_url(USERS_TABLE_ID), json=payload))
+    }
+    if referrer_id:
+        item["referrer_id"] = str(referrer_id)
+    _write("POST", USERS_TABLE_ID, item, OPTIONAL_USER_FIELDS)
     return True
 
 
 def update_user(record_id: int, fields: dict):
-    payload = [{"Id": record_id, **fields}]
-    _check(_request("PATCH", _records_url(USERS_TABLE_ID), json=payload))
+    _write("PATCH", USERS_TABLE_ID, {"Id": record_id, **fields}, OPTIONAL_USER_FIELDS)
     return True
 
 
@@ -138,11 +164,27 @@ def get_leads_of_manager(tg_id: int, limit: int = 500):
 
 
 def get_leads_light():
-    """Все лиды, только поля для статистики."""
-    return _list_all(LEADS_TABLE_ID, fields=STATS_FIELDS)
+    """Все лиды, только поля для статистики (с реферальными, если колонки уже созданы)."""
+    try:
+        return _list_all(LEADS_TABLE_ID, fields=STATS_FIELDS_REF)
+    except NocoError as e:
+        if not _is_schema_error(e):
+            raise
+        logging.warning("Нет реферальных колонок в Leads (python setup_schema.py): статистика без бонусов")
+        return _list_all(LEADS_TABLE_ID, fields=STATS_FIELDS)
+
+
+def get_leads_by_referrer(tg_id: int, limit: int = 1000):
+    """Сделки, по которым приглашающему tg_id положен бонус."""
+    try:
+        rows, _ = _list(LEADS_TABLE_ID, where=f"(referrer_id,eq,{_clean(tg_id)})", limit=limit)
+        return rows
+    except NocoError as e:
+        if not _is_schema_error(e):
+            raise
+        return []
 
 
 def update_lead(lead_id: int, fields: dict):
-    payload = [{"Id": int(lead_id), **fields}]
-    _check(_request("PATCH", _records_url(LEADS_TABLE_ID), json=payload))
+    _write("PATCH", LEADS_TABLE_ID, {"Id": int(lead_id), **fields}, OPTIONAL_LEAD_FIELDS)
     return True

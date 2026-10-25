@@ -53,11 +53,12 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def plan_lead_update(lead: dict, me: dict, status: str, comment, amount, percent_of) -> dict:
+def plan_lead_update(lead: dict, me: dict, status: str, comment, amount, percent_of, referral_of=None) -> dict:
     """Возвращает поля для записи в лид или бросает ServiceError.
 
     me: {"tg_id": int, "is_admin": bool}
     percent_of(tg_id) -> процент менеджера (для фиксации в сделке).
+    referral_of(tg_id) -> {referrer_id, referral_percent} или {} (реферальный бонус в сделке).
     """
     if status not in LEAD_STATUSES:
         raise ServiceError(400, "Недопустимый статус")
@@ -87,6 +88,11 @@ def plan_lead_update(lead: dict, me: dict, status: str, comment, amount, percent
             raise ServiceError(400, "Укажите сумму сделки")
         if current != "Won" or not lead.get("won_at"):
             fields["won_at"] = now_iso()
+            snap = referral_of(int(new_owner)) if referral_of else {}
+            if snap:
+                fields.update(snap)
+            elif str(lead.get("referrer_id") or "").strip():
+                fields.update({"referrer_id": "", "referral_percent": 0})  # старые условия сделки больше не действуют
         if current != "Won" or lead.get("manager_percent") in (None, ""):
             fields["manager_percent"] = percent_of(int(new_owner))
 

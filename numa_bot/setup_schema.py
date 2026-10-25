@@ -7,12 +7,18 @@ import requests
 import nocodb
 
 NEEDED = {
-    "Users": (nocodb.USERS_TABLE_ID, [("commission_percent", "Decimal")]),
+    "Users": (nocodb.USERS_TABLE_ID, [
+        ("commission_percent", "Decimal"),
+        ("referrer_id", "SingleLineText"),
+        ("approved_at", "SingleLineText"),
+    ]),
     "Leads": (nocodb.LEADS_TABLE_ID, [
         ("deal_amount", "Decimal"),
         ("manager_percent", "Decimal"),
         ("won_at", "SingleLineText"),
         ("last_comment", "LongText"),
+        ("referrer_id", "SingleLineText"),
+        ("referral_percent", "Decimal"),
     ]),
 }
 STATUS_VALUES = {

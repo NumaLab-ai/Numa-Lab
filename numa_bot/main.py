@@ -9,14 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.filters import CommandStart, Command, CommandObject
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, MenuButtonWebApp, BotCommand
 from aiogram.client.session.aiohttp import AiohttpSession
 from dotenv import load_dotenv
 
 import nocodb
 import stats
 import service
+import referral
+import messaging
 from auth import verify_init_data, AuthError
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +31,12 @@ ADMIN_USERNAMES = {u.strip().lstrip("@").lower() for u in os.getenv("ADMIN_USERN
 WEBAPP_URL = os.getenv("WEBAPP_URL", "http://100.94.236.55:8000")
 TG_PROXY = os.getenv("TG_PROXY") or None
 
-STATE = {"admin_ids": set()}
+ALLOW_MANAGER_BROADCAST = os.getenv("ALLOW_MANAGER_BROADCAST", "0") == "1"
+
+STATE = {"admin_ids": set(), "bot_username": os.getenv("BOT_USERNAME", "").lstrip("@") or None}
+PENDING = {}          # кто сейчас пишет сообщение через бота: {tg_id: {"to": ..., "ts": ...}}
+PENDING_TTL = 600
+limiter = messaging.RateLimiter()
 
 bot = Bot(token=BOT_TOKEN, session=AiohttpSession(proxy=TG_PROXY))
 dp = Dispatcher()
@@ -115,20 +122,40 @@ async def notify_user_markup(tg_id: int, text: str, reply_markup=None):
 def _set_status_sync(tg_id: int, status: str):
     rec = nocodb.get_user_by_tg_id(tg_id)
     service.check_status_change(rec, status, ADMIN_USERNAMES)
-    nocodb.update_user(rec["Id"], {"status": status})
+    fields = {"status": status}
+    if status == "approved" and not rec.get("approved_at"):
+        fields["approved_at"] = service.now_iso()  # с этого дня идёт месяц реферального бонуса
+    nocodb.update_user(rec["Id"], fields)
     invalidate("users", f"user:{tg_id}")
+    return rec, fields
 
 
 async def set_user_status(tg_id: int, status: str):
     """Меняет статус менеджера и сообщает ему об этом. Используется и ботом, и API."""
-    await run(_set_status_sync, tg_id, status)
+    rec, fields = await run(_set_status_sync, tg_id, status)
     await notify_user(tg_id, service.USER_STATUS_MESSAGES.get(status))
+    if "approved_at" in fields and rec.get("referrer_id"):
+        try:
+            await notify_user(int(rec["referrer_id"]), (
+                f"🤝 {rec.get('full_name') or 'Ваш друг'} присоединился по вашей ссылке!\n"
+                f"Ближайшие {referral.REFERRAL_DAYS} дней вы получаете {referral.REFERRAL_PERCENT:g}% с суммы его сделок."))
+        except (TypeError, ValueError):
+            pass
+
+
+async def get_bot_username():
+    if not STATE["bot_username"]:
+        try:
+            STATE["bot_username"] = (await bot.get_me()).username
+        except Exception as e:
+            logging.warning("Не удалось узнать username бота (можно задать BOT_USERNAME в .env): %s", e)
+    return STATE["bot_username"]
 
 
 # ---------- Telegram-бот ----------
 
 @dp.message(CommandStart())
-async def start_handler(message: types.Message):
+async def start_handler(message: types.Message, command: CommandObject = None):
     print(f"[BOT LOG] /start от {message.from_user.username} (ID: {message.from_user.id})")
     tg_id = message.from_user.id
     username = (message.from_user.username or "").lstrip("@")
@@ -167,7 +194,13 @@ async def start_handler(message: types.Message):
                 await message.answer("❌ Доступ к Numa Partners был отклонен.")
             return
 
-        await asyncio.to_thread(nocodb.create_user_request, tg_id, username, full_name, "manager", "pending")
+        referrer_id, referrer_name = None, ""
+        ref_id = referral.parse_ref_payload(command.args if command else None)
+        if ref_id and ref_id != tg_id:
+            ref_rec = await asyncio.to_thread(_user_record, ref_id)
+            if ref_rec and ref_rec.get("status") == "approved":
+                referrer_id, referrer_name = ref_id, ref_rec.get("full_name") or ""
+        await asyncio.to_thread(nocodb.create_user_request, tg_id, username, full_name, "manager", "pending", referrer_id)
     except nocodb.NocoError as e:
         logging.error("NocoDB в /start: %s", e)
         await message.answer("⚠️ Сервис временно недоступен, попробуйте через минуту.")
@@ -177,7 +210,8 @@ async def start_handler(message: types.Message):
         f"🛎 Ваша заявка отправлена на подтверждение администратору (@{ADMIN_USERNAME}). Ожидайте авторизации!"
     )
     await notify_admins(
-        f"🛎 Новая заявка менеджера:\n{full_name} (@{username or 'без username'})\nID: {tg_id}",
+        f"🛎 Новая заявка менеджера:\n{full_name} (@{username or 'без username'})\nID: {tg_id}"
+        + (f"\nПригласил: {referrer_name} (ID {referrer_id})" if referrer_id else ""),
         approve_keyboard(tg_id),
     )
 
@@ -292,6 +326,13 @@ async def api_leads(scope: str = "pool", tier: str = "A", status: Optional[str] 
     raise HTTPException(status_code=400, detail="Недопустимый scope")
 
 
+def num_or_zero(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class LeadUpdate(BaseModel):
     lead_id: int
     status: str
@@ -307,9 +348,17 @@ def _update_lead_sync(data: LeadUpdate, me: dict):
     def percent_of(tg_id: int) -> float:
         return stats.user_percent(_user_record(tg_id))
 
-    fields = service.plan_lead_update(lead, me, data.status, data.comment, data.deal_amount, percent_of)
+    def referral_of(owner_id: int) -> dict:
+        owner = _user_record(owner_id)
+        try:
+            referrer = _user_record(int((owner or {}).get("referrer_id")))
+        except (TypeError, ValueError):
+            return {}
+        return referral.deal_snapshot(owner, referrer)
+
+    fields = service.plan_lead_update(lead, me, data.status, data.comment, data.deal_amount, percent_of, referral_of)
     nocodb.update_lead(data.lead_id, fields)
-    invalidate("mine:", "all_leads")
+    invalidate("mine:", "all_leads", "refl:")
     return lead, fields
 
 
@@ -321,6 +370,11 @@ async def api_update_lead(data: LeadUpdate, me: dict = Depends(current_user)):
         asyncio.create_task(notify_admins(
             f"🎉 Сделка! {me['name']}: «{lead.get('company_name', '')}» на {amount_text} ₽"
         ))
+        if fields.get("referrer_id"):
+            bonus = fields["deal_amount"] * num_or_zero(fields.get("referral_percent")) / 100
+            asyncio.create_task(notify_user(int(fields["referrer_id"]), (
+                f"💸 Ваш друг {me['name']} закрыл сделку на {amount_text} ₽. "
+                f"Ваш бонус: {f'{bonus:,.0f}'.replace(',', ' ')} ₽ ({fields.get('referral_percent'):g}%)")))
     return {"status": "ok"}
 
 
@@ -369,11 +423,164 @@ async def api_user_percent(data: UserPercent, me: dict = Depends(admin_user)):
     return {"status": "ok", "percent": value}
 
 
+# ---------- Реферальная программа ----------
+
+def _referral_sync(me: dict):
+    users = cached("users", 15, nocodb.get_users)
+    ref_leads = cached(f"refl:{me['tg_id']}", 30, nocodb.get_leads_by_referrer, me["tg_id"])
+    return referral.summarize(me["tg_id"], users, ref_leads)
+
+
+@fastapi_app.get("/api/referral")
+async def api_referral(me: dict = Depends(current_user)):
+    data = await run(_referral_sync, me)
+    username = await get_bot_username()
+    data["link"] = f"https://t.me/{username}?start=ref_{me['tg_id']}" if username else None
+    return data
+
+
+# ---------- Сообщения через бота ----------
+
+class MessageIn(BaseModel):
+    to: str
+    text: str
+
+
+def _users_cached():
+    return cached("users", 15, nocodb.get_users)
+
+
+def _plan_message_sync(me: dict, to: str, text: str):
+    return messaging.plan_message(me, to, text, _users_cached(), ADMIN_USERNAMES, limiter, ALLOW_MANAGER_BROADCAST)
+
+
+async def deliver(me: dict, targets: list, text: str) -> dict:
+    """Отправляет сообщение получателям (с кнопкой «Ответить») и возвращает итог."""
+    body = messaging.format_message(me, text)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="↩️ Ответить", callback_data=f"wreply_{me['tg_id']}")
+    ]])
+    sent, failed = 0, []
+    for t in targets:
+        try:
+            await bot.send_message(int(t["tg_id"]), body, reply_markup=kb)
+            sent += 1
+        except Exception as e:
+            logging.warning("Сообщение для %s не доставлено: %s", t["tg_id"], e)
+            failed.append(t["name"])
+        await asyncio.sleep(0.05)  # лимит Telegram около 30 сообщений в секунду
+    logging.info("Сообщение от %s: доставлено %s, не доставлено %s", me["tg_id"], sent, len(failed))
+    return {"sent": sent, "failed": failed}
+
+
+@fastapi_app.get("/api/messages/recipients")
+async def api_message_recipients(me: dict = Depends(current_user)):
+    users = await run(_users_cached)
+    return messaging.recipients_view(me, users, ADMIN_USERNAMES, ALLOW_MANAGER_BROADCAST)
+
+
+@fastapi_app.post("/api/messages/send")
+async def api_message_send(data: MessageIn, me: dict = Depends(current_user)):
+    targets, text = await run(_plan_message_sync, me, data.to, data.text)
+    return await deliver(me, targets, text)
+
+
+async def bot_actor(tg_user: types.User):
+    """Тот же допуск, что у API: одобренный участник или админ. Иначе None."""
+    admin = is_admin(tg_user)
+    rec = await run(_user_record, tg_user.id)
+    if not admin and (not rec or rec.get("status") != "approved"):
+        return None
+    name = tg_user.full_name or tg_user.username or str(tg_user.id)
+    return {"tg_id": tg_user.id, "username": tg_user.username or "", "name": name, "is_admin": admin, "record": rec}
+
+
+@dp.message(Command("write"))
+async def write_command(message: types.Message):
+    me = await bot_actor(message.from_user)
+    if not me:
+        await message.answer("Писать коллегам могут только одобренные участники Numa Partners.")
+        return
+    view = messaging.recipients_view(me, await run(_users_cached), ADMIN_USERNAMES, ALLOW_MANAGER_BROADCAST)
+    rows = []
+    if view["can_broadcast"]:
+        rows.append([InlineKeyboardButton(text="📢 Всем сразу", callback_data="wto_all")])
+    if view["has_admins"]:
+        rows.append([InlineKeyboardButton(text="👑 Админам", callback_data="wto_admins")])
+    people = [InlineKeyboardButton(text=p["name"][:28], callback_data=f"wto_{p['tg_id']}") for p in view["people"][:40]]
+    rows.extend([people[i:i + 2] for i in range(0, len(people), 2)])
+    if not rows:
+        await message.answer("Пока некому писать: других участников нет.")
+        return
+    await message.answer("Кому написать?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@dp.callback_query(F.data.startswith("wto_"))
+@dp.callback_query(F.data.startswith("wreply_"))
+async def write_target_callback(callback: types.CallbackQuery):
+    me = await bot_actor(callback.from_user)
+    if not me:
+        await callback.answer("Недостаточно прав", show_alert=True)
+        return
+    to = callback.data.split("_", 1)[1]
+    if to != "all" and to != "admins" and not to.isdigit():
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    PENDING[callback.from_user.id] = {"to": to, "ts": time.time()}
+    await callback.message.answer("Напишите сообщение одним текстом. Отмена: /cancel")
+    await callback.answer()
+
+
+@dp.message(Command("cancel"))
+async def cancel_command(message: types.Message):
+    PENDING.pop(message.from_user.id, None)
+    await message.answer("Отменено.")
+
+
+@dp.message(F.text & ~F.text.startswith("/"))
+async def text_handler(message: types.Message):
+    pend = PENDING.pop(message.from_user.id, None)
+    if not pend or time.time() - pend["ts"] > PENDING_TTL:
+        await message.answer("Открыть приложение: /start\nНаписать коллеге: /write")
+        return
+    me = await bot_actor(message.from_user)
+    if not me:
+        return
+    try:
+        targets, text = await run(_plan_message_sync, me, pend["to"], message.text)
+    except HTTPException as e:
+        await message.answer(f"⚠️ {e.detail}")
+        return
+    result = await deliver(me, targets, text)
+    note = f"✅ Доставлено: {result['sent']}"
+    if result["failed"]:
+        note += f"\nНе доставлено ({len(result['failed'])}): " + ", ".join(result["failed"][:10]) + \
+                "\nВозможно, они ещё не запускали бота."
+    await message.answer(note)
+
+
 # ---------- Запуск ----------
+
+async def setup_bot_ui():
+    """Кнопка Mini App рядом со строкой сообщений (для всех чатов с ботом) и меню команд."""
+    try:
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+            text="Numa", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app")))
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Открыть Numa Partners"),
+            BotCommand(command="write", description="Написать коллеге или всем"),
+            BotCommand(command="cancel", description="Отменить написание"),
+        ])
+        logging.info("Кнопка Mini App и команды установлены")
+    except Exception as e:
+        logging.warning("Не удалось установить кнопку меню (нужен https-адрес WEBAPP_URL): %s", e)
+    await get_bot_username()
+
 
 async def start_bot():
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+        await setup_bot_ui()
         logging.info("Bot polling started")
         await dp.start_polling(bot, handle_signals=False)
     except Exception:
