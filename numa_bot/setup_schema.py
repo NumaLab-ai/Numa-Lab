@@ -11,6 +11,7 @@ NEEDED = {
         ("commission_percent", "Decimal"),
         ("referrer_id", "SingleLineText"),
         ("approved_at", "SingleLineText"),
+        ("payout_details", "LongText"),
     ]),
     "Leads": (nocodb.LEADS_TABLE_ID, [
         ("deal_amount", "Decimal"),
@@ -19,6 +20,7 @@ NEEDED = {
         ("last_comment", "LongText"),
         ("referrer_id", "SingleLineText"),
         ("referral_percent", "Decimal"),
+        ("payment_status", "SingleLineText"),
     ]),
 }
 STATUS_VALUES = {

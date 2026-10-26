@@ -50,6 +50,10 @@ def _empty_row(tg_id, user):
         "pending_amount": 0, "paid_deals": 0,
         "revenue": 0.0, "payout": 0.0, "net": 0.0, "conversion": 0.0,
         "ref_bonus": 0.0, "ref_cost": 0.0, "invited": 0,
+        "expected_amount": 0.0, "expected_payout": 0.0, "expected_deals": 0,
+        "payout_due": 0.0, "client_lost": 0,
+        "has_details": bool(str((user or {}).get("payout_details") or "").strip()),
+        "payout_details": str((user or {}).get("payout_details") or ""),
     }
 
 
@@ -71,6 +75,8 @@ def compute_stats(leads, users, period="all", now=None, default_percent=DEFAULT_
         "pool_by_tier": {},
         "revenue": 0.0, "payout": 0.0, "net": 0.0, "referral": 0.0,
         "paid_deals": 0, "pending_amount": 0, "won": 0, "taken": 0, "conversion": 0.0,
+        "expected_amount": 0.0, "expected_payout": 0.0, "expected_deals": 0,
+        "payout_due": 0.0, "client_lost": 0,
     }
 
     for lead in leads:
@@ -113,6 +119,26 @@ def compute_stats(leads, users, period="all", now=None, default_percent=DEFAULT_
         amount = num(amount)
         percent = lead_percent(lead, users_by_id.get(owner), default_percent)
         payout = amount * percent / 100.0
+
+        pay_state = lead.get("payment_status") or "paid"
+        if pay_state == "client_lost":  # клиент не оплатил: сделка не засчитывается
+            totals["client_lost"] += 1
+            if row is not None:
+                row["client_lost"] += 1
+            continue
+        if pay_state == "awaiting":  # менеджер закрыл, деньги от клиента ещё не получены: не гарантировано
+            totals["expected_amount"] += amount
+            totals["expected_payout"] += payout
+            totals["expected_deals"] += 1
+            if row is not None:
+                row["expected_amount"] += amount
+                row["expected_payout"] += payout
+                row["expected_deals"] += 1
+            continue
+        if pay_state == "paid":  # клиент заплатил, менеджеру ещё не перевели
+            totals["payout_due"] += payout
+            if row is not None:
+                row["payout_due"] += payout
         totals["revenue"] += amount
         totals["payout"] += payout
         totals["paid_deals"] += 1
@@ -138,10 +164,10 @@ def compute_stats(leads, users, period="all", now=None, default_percent=DEFAULT_
     for row in rows.values():
         row["net"] = row["revenue"] - row["payout"] - row["ref_cost"]
         row["conversion"] = round(100.0 * row["won"] / row["taken"], 1) if row["taken"] else 0.0
-        for key in ("revenue", "payout", "net", "ref_bonus", "ref_cost"):
+        for key in ("revenue", "payout", "net", "ref_bonus", "ref_cost", "expected_amount", "expected_payout", "payout_due"):
             row[key] = round(row[key], 2)
 
-    for key in ("revenue", "payout", "net", "referral"):
+    for key in ("revenue", "payout", "net", "referral", "expected_amount", "expected_payout", "payout_due"):
         totals[key] = round(totals[key], 2)
 
     managers = sorted(rows.values(), key=lambda r: (-r["revenue"], -r["won"], -r["taken"], r["name"]))

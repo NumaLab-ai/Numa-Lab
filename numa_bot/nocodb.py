@@ -17,12 +17,12 @@ TIMEOUT = 10
 
 # Поля, нужные для статистики (без тяжёлых текстовых колонок)
 STATS_FIELDS = "Id,status,tier,assigned_manager,deal_amount,won_at,manager_percent"
-STATS_FIELDS_REF = STATS_FIELDS + ",referrer_id,referral_percent"
+STATS_FIELDS_REF = STATS_FIELDS + ",referrer_id,referral_percent,payment_status"
 
 # Колонки реферальной программы. Если их ещё нет в таблице, основная работа не должна ломаться:
 # при отказе базы запись повторяется без них (создать колонки: python setup_schema.py).
-OPTIONAL_USER_FIELDS = ("referrer_id", "approved_at")
-OPTIONAL_LEAD_FIELDS = ("referrer_id", "referral_percent")
+OPTIONAL_USER_FIELDS = ("referrer_id", "approved_at", "payout_details")
+OPTIONAL_LEAD_FIELDS = ("referrer_id", "referral_percent", "payment_status")
 
 
 class NocoError(Exception):
@@ -183,6 +183,41 @@ def get_leads_by_referrer(tg_id: int, limit: int = 1000):
         if not _is_schema_error(e):
             raise
         return []
+
+
+DEAL_FIELDS = ("Id,company_name,deal_amount,assigned_manager,won_at,manager_percent,status,"
+               "referrer_id,referral_percent,payment_status,last_comment")
+DEAL_FIELDS_BASE = "Id,company_name,deal_amount,assigned_manager,won_at,manager_percent,status,last_comment"
+
+
+def get_won_leads():
+    """Заключённые сделки для админской вкладки «Сделки»."""
+    where = "(status,eq,Won)"
+    try:
+        return _list_all(LEADS_TABLE_ID, where=where, fields=DEAL_FIELDS, sort="-Id")
+    except NocoError as e:
+        if not _is_schema_error(e):
+            raise
+        return _list_all(LEADS_TABLE_ID, where=where, fields=DEAL_FIELDS_BASE, sort="-Id")
+
+
+def set_payment_status(lead_id: int, value: str):
+    """Строго, без тихого отката: если колонки нет, админ должен узнать об этом."""
+    try:
+        _write("PATCH", LEADS_TABLE_ID, {"Id": int(lead_id), "payment_status": value})
+    except NocoError as e:
+        if _is_schema_error(e):
+            raise NocoError("В таблице Leads нет колонки payment_status: запустите python setup_schema.py") from e
+        raise
+
+
+def set_payout_details(record_id: int, text: str):
+    try:
+        _write("PATCH", USERS_TABLE_ID, {"Id": int(record_id), "payout_details": text})
+    except NocoError as e:
+        if _is_schema_error(e):
+            raise NocoError("В таблице Users нет колонки payout_details: запустите python setup_schema.py") from e
+        raise
 
 
 def update_lead(lead_id: int, fields: dict):

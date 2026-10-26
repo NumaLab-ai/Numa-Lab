@@ -37,6 +37,14 @@ ALLOW_MANAGER_BROADCAST = os.getenv("ALLOW_MANAGER_BROADCAST", "0") == "1"
 STATE = {"admin_ids": set(), "bot_username": os.getenv("BOT_USERNAME", "").lstrip("@") or None}
 PENDING = {}          # кто сейчас пишет сообщение через бота: {tg_id: {"to": ..., "ts": ...}}
 PENDING_TTL = 600
+DETAILS_WAIT = {}     # кто сейчас присылает реквизиты: {tg_id: {"ts": ..., "after_deal": bool}}
+
+
+def rub(value) -> str:
+    try:
+        return f"{float(value):,.0f}".replace(",", " ")
+    except (TypeError, ValueError):
+        return "0"
 limiter = messaging.RateLimiter()
 
 bot = Bot(token=BOT_TOKEN, session=AiohttpSession(proxy=TG_PROXY))
@@ -120,6 +128,15 @@ async def notify_user_markup(tg_id: int, text: str, reply_markup=None):
         logging.warning("Не удалось уведомить %s: %s", tg_id, e)
 
 
+DETAILS_PROMPT = ("💳 Укажите реквизиты для выплат одним сообщением: номер карты или телефон для СБП, "
+                  "банк и имя получателя.\nИзменить позже: /requisites. Отмена: /cancel")
+
+
+async def ask_details(tg_id: int, after_deal: bool = False, intro: str = ""):
+    DETAILS_WAIT[tg_id] = {"ts": time.time(), "after_deal": after_deal}
+    await notify_user_markup(tg_id, (intro + "\n\n" if intro else "") + DETAILS_PROMPT)
+
+
 def _set_status_sync(tg_id: int, status: str):
     rec = nocodb.get_user_by_tg_id(tg_id)
     service.check_status_change(rec, status, ADMIN_USERNAMES)
@@ -187,6 +204,8 @@ async def start_handler(message: types.Message, command: CommandObject = None):
                     InlineKeyboardButton(text="💼 Открыть Numa Partners App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app"))
                 ]])
                 await message.answer(f"С возвращением, {full_name}! Ваша панель готова к работе.", reply_markup=kb)
+                if not str(user.get("payout_details") or "").strip():
+                    await ask_details(tg_id, intro="Чтобы мы могли выплатить заработанное, нужны ваши реквизиты.")
             elif status == "pending":
                 await message.answer(f"⏳ Ваша заявка находится на рассмотрении у администратора (@{ADMIN_USERNAME}).")
             elif status == "banned":
@@ -219,6 +238,7 @@ async def start_handler(message: types.Message, command: CommandObject = None):
         + (f"\nПригласил: {referrer_name} (ID {referrer_id})" if referrer_id else ""),
         approve_keyboard(tg_id),
     )
+    await ask_details(tg_id, intro="Пока администратор рассматривает заявку, оставьте реквизиты для выплат по вашим сделкам.")
 
 
 ACTIONS = {"approve": "approved", "reject": "rejected", "ban": "banned"}
@@ -314,6 +334,7 @@ async def api_me(period: str = "all", me: dict = Depends(current_user)):
         "is_admin": me["is_admin"],
         "percent": me["percent"],
         "stats": service.personal_row(leads, record, period),
+        "payout_details": str(record.get("payout_details") or ""),
     }
 
 
@@ -373,7 +394,8 @@ async def api_update_lead(data: LeadUpdate, me: dict = Depends(current_user)):
     if fields.get("status") == "Won" and "deal_amount" in fields:
         amount_text = f"{fields['deal_amount']:,.0f}".replace(",", " ")
         asyncio.create_task(notify_admins(
-            f"🎉 Сделка! {me['name']}: «{lead.get('company_name', '')}» на {amount_text} ₽"
+            f"🎉 Сделка! {me['name']}: «{lead.get('company_name', '')}» на {amount_text} ₽\n"
+            f"Ожидает оплаты клиентом. Отметить результат: Mini App → Сделки."
         ))
         if fields.get("referrer_id"):
             bonus = fields["deal_amount"] * num_or_zero(fields.get("referral_percent")) / 100
@@ -383,7 +405,123 @@ async def api_update_lead(data: LeadUpdate, me: dict = Depends(current_user)):
     return {"status": "ok"}
 
 
+def _save_details_sync(tg_id: int, raw) -> str:
+    text = service.parse_details(raw)
+    rec = nocodb.get_user_by_tg_id(tg_id)
+    if not rec:
+        raise service.ServiceError(404, "Сначала пройдите регистрацию: /start")
+    nocodb.set_payout_details(rec["Id"], text)
+    invalidate("users", f"user:{tg_id}")
+    return text
+
+
+class DetailsIn(BaseModel):
+    details: str
+
+
+@fastapi_app.post("/api/me/details")
+async def api_my_details(data: DetailsIn, me: dict = Depends(current_user)):
+    text = await run(_save_details_sync, me["tg_id"], data.details)
+    return {"status": "ok", "details": text}
+
+
+@dp.callback_query(F.data.startswith("pdok_"))
+@dp.callback_query(F.data.startswith("pdchg_"))
+async def details_check_callback(callback: types.CallbackQuery):
+    action, _, lead_id = callback.data.partition("_")
+    if not lead_id.isdigit():
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    lead = await run(nocodb.get_lead, int(lead_id))
+    if not lead or str(lead.get("assigned_manager") or "") != str(callback.from_user.id):
+        await callback.answer("Это не ваша сделка", show_alert=True)
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    if action == "pdok":
+        await callback.message.answer("👍 Спасибо, реквизиты подтверждены. Выплата будет отправлена на них.")
+        await notify_admins(f"✅ {callback.from_user.full_name} подтвердил реквизиты по сделке «{lead.get('company_name', '')}». Можно переводить.")
+    else:
+        await ask_details(callback.from_user.id, after_deal=True, intro="Пришлите верные реквизиты, мы передадим их администратору.")
+    await callback.answer()
+
+
 # ---------- API админа ----------
+
+DEAL_ORDER = {"awaiting": 0, "paid": 1, "payout_done": 2, "client_lost": 3}
+
+
+def _deals_sync():
+    users = {str(u.get("telegram_id")): u for u in cached("users", 15, nocodb.get_users)}
+    out = []
+    for l in nocodb.get_won_leads():
+        if l.get("deal_amount") in (None, ""):
+            continue
+        owner = str(l.get("assigned_manager") or "")
+        u = users.get(owner) or {}
+        percent = stats.lead_percent(l, u)
+        amount = stats.num(l.get("deal_amount"))
+        details = str(u.get("payout_details") or "").strip()
+        out.append({
+            "id": l["Id"], "company": l.get("company_name") or "", "amount": amount, "percent": percent,
+            "payout": round(amount * percent / 100.0, 2),
+            "payment_status": l.get("payment_status") or "paid",
+            "manager": u.get("full_name") or f"ID {owner}", "manager_id": owner,
+            "username": u.get("username") or "", "details": details, "has_details": bool(details),
+            "won_at": l.get("won_at") or "",
+        })
+    out.sort(key=lambda d: (DEAL_ORDER.get(d["payment_status"], 1), -(stats.parse_dt(d["won_at"]) or stats.parse_dt("2000-01-01")).timestamp()))
+    return out[:300]
+
+
+@fastapi_app.get("/api/admin/deals")
+async def api_admin_deals(me: dict = Depends(admin_user)):
+    return {"deals": await run(_deals_sync)}
+
+
+class DealStatus(BaseModel):
+    lead_id: int
+    payment_status: str
+
+
+def _deal_status_sync(lead_id: int, new_status: str):
+    lead = nocodb.get_lead(lead_id)
+    service.check_payment_status(lead, new_status)
+    nocodb.set_payment_status(lead_id, new_status)
+    invalidate("mine:", "all_leads", "refl:")
+    owner = str(lead.get("assigned_manager") or "")
+    rec = nocodb.get_user_by_tg_id(int(owner)) if owner.isdigit() else None
+    return lead, owner, rec
+
+
+@fastapi_app.post("/api/admin/deals/status")
+async def api_admin_deal_status(data: DealStatus, me: dict = Depends(admin_user)):
+    lead, owner, rec = await run(_deal_status_sync, data.lead_id, data.payment_status)
+    if owner.isdigit():
+        company = lead.get("company_name") or ""
+        percent = stats.lead_percent(lead, rec or {})
+        payout = rub(stats.num(lead.get("deal_amount")) * percent / 100.0)
+        st = data.payment_status
+        if st == "paid":
+            details = str((rec or {}).get("payout_details") or "").strip()
+            if details:
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="✅ Всё верно", callback_data=f"pdok_{lead['Id']}"),
+                    InlineKeyboardButton(text="✏️ Изменить", callback_data=f"pdchg_{lead['Id']}"),
+                ]])
+                await notify_user_markup(int(owner), (
+                    f"✅ Клиент оплатил заказ «{company}».\nВаша выплата: {payout} ₽ ({percent:g}%).\n\n"
+                    f"Реквизиты, на которые мы переведём:\n{details}\n\nПроверьте, пожалуйста, чтобы мы не отправили деньги не туда."), kb)
+            else:
+                await ask_details(int(owner), after_deal=True, intro=(
+                    f"✅ Клиент оплатил заказ «{company}». Ваша выплата: {payout} ₽ ({percent:g}%).\nУ нас нет ваших реквизитов."))
+        elif st == "client_lost":
+            await notify_user(int(owner), f"❌ Клиент по «{company}» не оплатил заказ. Сделка не засчитана.")
+        elif st == "payout_done":
+            await notify_user(int(owner), f"💸 Выплата {payout} ₽ по «{company}» отправлена. Проверьте поступление.")
+    return {"status": "ok"}
 
 @fastapi_app.get("/api/admin/stats")
 async def api_admin_stats(period: str = "all", me: dict = Depends(admin_user)):
@@ -556,14 +694,43 @@ async def write_target_callback(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@dp.message(Command("requisites"))
+async def requisites_command(message: types.Message):
+    rec = await run(_user_record, message.from_user.id)
+    if not rec:
+        await message.answer("Сначала пройдите регистрацию: /start")
+        return
+    current = str(rec.get("payout_details") or "").strip()
+    await ask_details(message.from_user.id, intro=f"Текущие реквизиты:\n{current}" if current else "Реквизиты пока не указаны.")
+
+
 @dp.message(Command("cancel"))
 async def cancel_command(message: types.Message):
     PENDING.pop(message.from_user.id, None)
+    DETAILS_WAIT.pop(message.from_user.id, None)
     await message.answer("Отменено.")
 
 
 @dp.message(F.text & ~F.text.startswith("/"))
 async def text_handler(message: types.Message):
+    waiting = DETAILS_WAIT.get(message.from_user.id)
+    if waiting and time.time() - waiting["ts"] <= PENDING_TTL:
+        try:
+            await run(_save_details_sync, message.from_user.id, message.text)
+        except service.ServiceError as e:
+            await message.answer(f"⚠️ {e.detail}\nПопробуйте ещё раз или /cancel")
+            return
+        except nocodb.NocoError as e:
+            DETAILS_WAIT.pop(message.from_user.id, None)
+            logging.error("Не удалось сохранить реквизиты: %s", e)
+            await message.answer("⚠️ Не удалось сохранить реквизиты, попробуйте позже.")
+            return
+        DETAILS_WAIT.pop(message.from_user.id, None)
+        await message.answer("✅ Реквизиты сохранены. Изменить: /requisites")
+        if waiting.get("after_deal"):
+            await notify_admins(f"💳 {message.from_user.full_name} (ID {message.from_user.id}) обновил реквизиты после сделки:\n{service.parse_details(message.text)}")
+        return
+    DETAILS_WAIT.pop(message.from_user.id, None)
     pend = PENDING.pop(message.from_user.id, None)
     if not pend or time.time() - pend["ts"] > PENDING_TTL:
         await message.answer("Открыть приложение: /start\nНаписать коллеге: /write")
@@ -594,7 +761,8 @@ async def setup_bot_ui():
         await bot.set_my_commands([
             BotCommand(command="start", description="Открыть Numa Partners"),
             BotCommand(command="write", description="Написать коллеге или всем"),
-            BotCommand(command="cancel", description="Отменить написание"),
+            BotCommand(command="requisites", description="Реквизиты для выплат"),
+            BotCommand(command="cancel", description="Отменить ввод"),
         ])
         logging.info("Кнопка Mini App и команды установлены")
     except Exception as e:

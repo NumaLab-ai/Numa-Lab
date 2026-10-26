@@ -10,6 +10,9 @@ USER_STATUSES = ("approved", "rejected", "banned", "pending")
 PERIODS = ("all", "week", "month")
 MAX_AMOUNT = 1_000_000_000
 MAX_COMMENT = 500
+# Оплата сделки. Пусто = старая сделка до введения статусов: считается оплаченной.
+PAYMENT_STATUSES = ("awaiting", "paid", "payout_done", "client_lost")
+MIN_DETAILS, MAX_DETAILS = 8, 300
 
 USER_STATUS_MESSAGES = {
     "approved": "🎉 Доступ к Numa Partners открыт! Нажмите /start, чтобы войти.",
@@ -88,6 +91,8 @@ def plan_lead_update(lead: dict, me: dict, status: str, comment, amount, percent
             raise ServiceError(400, "Укажите сумму сделки")
         if current != "Won" or not lead.get("won_at"):
             fields["won_at"] = now_iso()
+            if lead.get("payment_status") not in ("paid", "payout_done"):
+                fields["payment_status"] = "awaiting"  # деньги от клиента ещё не получены
             snap = referral_of(int(new_owner)) if referral_of else {}
             if snap:
                 fields.update(snap)
@@ -117,3 +122,23 @@ def personal_row(leads: list, user_record: dict, period: str = "all") -> dict:
         if row["tg_id"] == tg_id:
             return row
     return result["managers"][0] if result["managers"] else {}
+
+
+def check_payment_status(lead: dict, new_status: str):
+    if new_status not in PAYMENT_STATUSES:
+        raise ServiceError(400, "Недопустимый статус оплаты")
+    if not lead:
+        raise ServiceError(404, "Сделка не найдена")
+    if lead.get("status") != "Won" or lead.get("deal_amount") in (None, ""):
+        raise ServiceError(400, "Это не заключённая сделка с суммой")
+
+
+def parse_details(value) -> str:
+    """Реквизиты для выплат: обычный текст, без лишних пробелов."""
+    text = " ".join(str(value or "").replace("\r", "\n").split("\n")).strip()
+    text = " ".join(text.split())
+    if len(text) < MIN_DETAILS:
+        raise ServiceError(400, "Слишком коротко. Укажите карту или телефон для СБП, банк и имя получателя")
+    if len(text) > MAX_DETAILS:
+        raise ServiceError(400, f"Слишком длинно, максимум {MAX_DETAILS} символов")
+    return text
