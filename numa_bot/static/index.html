@@ -730,6 +730,12 @@ document.addEventListener('click', async ev => {
                 await api('/api/admin/users/status', { method: 'POST', body: JSON.stringify({ tg_id: Number(el.dataset.tg), status: st }) });
                 haptic('success'); toast('Готово'); render(); break;
             }
+            case 'scraper-save': {
+                const values = {};
+                ($('scraperBox').dataset.keys || '').split(',').filter(Boolean).forEach(k => { values[k] = $('scr-' + k).value; });
+                await api('/api/admin/scraper', { method: 'POST', body: JSON.stringify({ values }) });
+                haptic('success'); toast('Настройки парсера сохранены'); break;
+            }
             case 'user-percent': {
                 const value = $('pct-' + el.dataset.tg).value;
                 const r = await api('/api/admin/users/percent', { method: 'POST', body: JSON.stringify({ tg_id: Number(el.dataset.tg), percent: value }) });
