@@ -35,6 +35,17 @@ WORKERS = 3                    # параллельные проверки (Rasp
 MAX_AI_FAILS_IN_ROW = 5        # столько сбоев ИИ подряд — останавливаем запуск
 PAUSE_BETWEEN_QUERIES = 3      # пауза между запросами к Overpass, секунд
 POOL_TARGET = int(os.getenv("POOL_TARGET", "0"))   # 0 = искать всегда; число N = не искать, пока свободных лидов N и больше
+# Лимиты можно менять в админке Mini App: они лежат в scraper_settings.json и подхватываются при каждом запуске
+try:
+    with open(os.path.join(HERE, "scraper_settings.json"), encoding="utf-8") as _f:
+        _cfg = json.load(_f)
+    TARGET_NEW_PER_CATEGORY = max(1, int(_cfg.get("target_new", TARGET_NEW_PER_CATEGORY)))
+    MAX_CHECK_PER_CATEGORY = max(1, int(_cfg.get("max_check", MAX_CHECK_PER_CATEGORY)))
+    WORKERS = max(1, int(_cfg.get("workers", WORKERS)))
+    if "POOL_TARGET" not in os.environ:
+        POOL_TARGET = max(0, int(_cfg.get("pool_target", POOL_TARGET)))
+except (OSError, ValueError, TypeError):
+    pass
 ALERT_COOLDOWN = 6 * 3600      # одну и ту же тревогу шлём не чаще раза в 6 часов
 
 
