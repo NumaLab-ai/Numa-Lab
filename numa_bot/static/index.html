@@ -545,7 +545,27 @@ async function renderStats(tk) {
                 <div style="margin:8px 0 6px">${bar(m.revenue, maxRev, 'ok')}</div>
                 <div class="muted small">Компании чистыми <b style="color:var(--ok)">${money(m.net)}</b> · выплата ${money(m.payout)} (${pct(m.percent)}) · сделок ${m.paid_deals} · конверсия ${m.conversion}%${num(m.ref_bonus) ? ' · рефбонус ' + money(m.ref_bonus) : ''}</div>
             </div>`).join('') : empty('Пока нет данных')}
-        </div>`;
+        </div>
+        <div class="card stack mt" id="scraperBox" style="gap:12px"><div class="sec">Парсер лидов</div>${loading()}</div>`;
+    loadScraperBox(tk);
+}
+
+async function loadScraperBox(tk) {
+    let r;
+    try { r = await api('/api/admin/scraper'); } catch (e) {
+        const b = $('scraperBox'); if (b && tk === token) b.innerHTML = `<div class="sec">Парсер лидов</div><p class="small" style="color:var(--bad)">${esc(e.message)}</p>`;
+        return;
+    }
+    const box = $('scraperBox');
+    if (tk !== token || !box) return;
+    box.innerHTML = `<div class="sec">Парсер лидов</div>
+        <div class="grid2">${tile('Всего лидов в базе', num(r.total_leads))}${tile('Свободных', num(r.free_leads))}</div>
+        <p class="small muted">Сколько лидов парсер ищет и анализирует за запуск. Новые значения применяются при следующем запуске (cron).</p>
+        ${r.settings.map(x => `<div><div class="small" style="margin-bottom:5px">${esc(x.label)}</div>
+            <input id="scr-${esc(x.key)}" type="text" inputmode="numeric" value="${num(x.value)}" style="width:110px;text-align:center">
+            <span class="muted small"> от ${num(x.min)} до ${num(x.max)} · по умолчанию ${num(x.default)}</span></div>`).join('')}
+        <button class="btn ok" data-act="scraper-save">Сохранить</button>`;
+    box.dataset.keys = r.settings.map(x => x.key).join(',');
 }
 
 async function renderManagers(tk) {
