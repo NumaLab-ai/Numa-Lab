@@ -19,6 +19,7 @@ import stats
 import service
 import referral
 import messaging
+import scraper_settings
 from auth import verify_init_data, AuthError
 
 logging.basicConfig(level=logging.INFO)
@@ -205,6 +206,10 @@ async def start_handler(message: types.Message, command: CommandObject = None):
         logging.error("NocoDB в /start: %s", e)
         await message.answer("⚠️ Сервис временно недоступен, попробуйте через минуту.")
         return
+    except Exception:
+        logging.exception("Сбой в /start")
+        await message.answer("⚠️ Что-то пошло не так, попробуйте /start ещё раз через минуту.")
+        return
 
     await message.answer(
         f"🛎 Ваша заявка отправлена на подтверждение администратору (@{ADMIN_USERNAME}). Ожидайте авторизации!"
@@ -388,6 +393,26 @@ async def api_admin_stats(period: str = "all", me: dict = Depends(admin_user)):
     result = stats.compute_stats(leads, users, period)
     result["admin_usernames"] = sorted(ADMIN_USERNAMES)
     return result
+
+
+@fastapi_app.get("/api/admin/scraper")
+async def api_scraper_get(me: dict = Depends(admin_user)):
+    leads = await run(cached, "all_leads", 30, nocodb.get_leads_light)
+    free = sum(1 for l in leads if not l.get("assigned_manager") and l.get("status") in (None, "", "New"))
+    return {"settings": scraper_settings.describe(), "total_leads": len(leads), "free_leads": free}
+
+
+class ScraperSettings(BaseModel):
+    values: dict
+
+
+@fastapi_app.post("/api/admin/scraper")
+async def api_scraper_set(data: ScraperSettings, me: dict = Depends(admin_user)):
+    try:
+        await asyncio.to_thread(scraper_settings.save, data.values)
+    except scraper_settings.SettingsError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "ok", "settings": scraper_settings.describe()}
 
 
 class UserStatus(BaseModel):
@@ -578,13 +603,22 @@ async def setup_bot_ui():
 
 
 async def start_bot():
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await setup_bot_ui()
-        logging.info("Bot polling started")
-        await dp.start_polling(bot, handle_signals=False)
-    except Exception:
-        logging.exception("BOT POLLING FAILED")
+    """Опрос Telegram не должен падать из-за временных сбоев сети/прокси: пробуем снова."""
+    delay = 5
+    while True:
+        try:
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+            except Exception as e:
+                logging.warning("delete_webhook не удался (продолжаем): %s", e)
+            asyncio.create_task(asyncio.wait_for(setup_bot_ui(), 60))
+            logging.info("Bot polling started")
+            await dp.start_polling(bot, handle_signals=False)
+            return
+        except Exception:
+            logging.exception("BOT POLLING FAILED, повтор через %s с", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 120)
 
 
 @fastapi_app.on_event("startup")
