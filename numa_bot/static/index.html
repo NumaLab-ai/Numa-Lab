@@ -265,6 +265,7 @@ const ICONS = {
     mine: '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M8 12.5l3 3 5-6"/>',
     stats: '<path d="M5 20V11M12 20V4M19 20v-6"/>',
     mgr: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.2a3 3 0 010 5.6M18 14.3c1.7.8 3 2.7 3 5.7"/>',
+    deals: '<rect x="3.5" y="6" width="17" height="12" rx="3"/><circle cx="12" cy="12" r="2.4"/><path d="M7 12h.01M17 12h.01"/>',
     cab: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/>',
     ref: '<rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M12 9v11M3.5 13.5h17"/><path d="M12 9C10.8 5.8 7 5.3 7 7.6 7 9 9.5 9 12 9zm0 0c1.2-3.2 5-3.7 5-1.4C17 9 14.5 9 12 9z"/>',
 };
@@ -315,6 +316,11 @@ let me = null, tab = 'leads', poolTier = 'B', mineStatus = 'In_Progress', period
 const leadsById = {};
 
 const STATUS_LABEL = { New: 'Новые', In_Progress: 'В работе', Postponed: 'Отложено', Lost: 'Отказ', Won: 'Сделки' };
+const PAY = {
+    awaiting: ['Ждём оплату от клиента', 'warn'], paid: ['Клиент оплатил', 'ok'],
+    payout_done: ['Выплачено менеджеру', 'ink'], client_lost: ['Клиент слился', 'bad'],
+};
+const payState = l => PAY[l.payment_status] ? l.payment_status : 'paid';   // старые сделки без статуса считаем оплаченными
 const USER_LABEL = { approved: ['Активен', 'ok'], pending: ['Ожидает', 'warn'], rejected: ['Отклонён', ''], banned: ['Забанен', 'bad'] };
 
 const sec = (n, text) => `<div class="sec"><b>${esc(n)}</b> / ${esc(text)}</div>`;
@@ -354,8 +360,13 @@ function leadCard(l, mode) {
     } else if (l.status === 'Won') {
         const p = (l.manager_percent !== null && l.manager_percent !== '' && l.manager_percent !== undefined) ? num(l.manager_percent) : num(me.percent);
         if (l.deal_amount !== null && l.deal_amount !== '' && l.deal_amount !== undefined) {
-            extra = `<div class="grid3 mt">${mini('Сумма', money(l.deal_amount))}${mini('Процент', pct(p))}${mini('Выплата', money(num(l.deal_amount) * p / 100), 'ok-t')}</div>`;
-            actions = btn('amount', 'Изменить сумму', 'soft span2');
+            const ps = payState(l), [pl, pc] = PAY[ps];
+            const sure = ps === 'paid' || ps === 'payout_done';
+            extra = `<div class="mt"><span class="pill ${pc}">${pl}</span></div>
+                <div class="grid3 mt">${mini('Сумма', money(l.deal_amount))}${mini('Процент', pct(p))}${mini(sure ? 'Ваша выплата' : ps === 'client_lost' ? 'Выплата' : 'Если клиент оплатит', money(num(l.deal_amount) * p / 100), sure ? 'ok-t' : '')}</div>
+                ${ps === 'awaiting' ? '<p class="small muted mt">Деньги от клиента ещё не получены, дальше с ним общаемся мы. Заработок не гарантирован, пока заказчик не оплатит.</p>' : ''}
+                ${ps === 'client_lost' ? '<p class="small mt" style="color:var(--bad)">Клиент не оплатил заказ, сделка не засчитана.</p>' : ''}`;
+            actions = ps === 'awaiting' ? btn('amount', 'Изменить сумму', 'soft span2') : '';
         } else {
             extra = `<p class="small mt" style="color:var(--warn)">Сумма сделки не указана: она не попадёт в статистику.</p>`;
             actions = btn('amount', 'Указать сумму', 'ok span2');
@@ -408,10 +419,18 @@ async function renderCabinet(tk) {
             ${WM}
             <div class="small muted">Ваш процент с продаж</div>
             <div style="font-size:58px;font-weight:800;letter-spacing:-.04em;line-height:1.05">${pct(d.percent)}</div>
-            <div class="small muted mt">Заработано за период: <b style="color:#fff">${money(s.payout)}</b></div>
+            <div class="small muted mt">Заработано (клиент оплатил): <b style="color:#fff">${money(s.payout)}</b></div>
+            ${num(s.expected_deals) ? `<div class="small muted" style="margin-top:4px">Ждём оплату клиентов: <b style="color:#fff">${money(s.expected_payout)}</b> · ${num(s.expected_deals)} сд. Не гарантировано.</div>` : ''}
+        </div>
+        ${num(s.payout_due) ? `<div class="card mb" style="border-color:var(--ok)"><div class="small muted">К выплате вам</div><div class="mono" style="font-size:26px;font-weight:800;color:var(--ok)">${money(s.payout_due)}</div></div>` : ''}
+        <div class="card mb stack" style="gap:10px">
+            <div class="sec">Реквизиты для выплат</div>
+            ${d.payout_details ? '' : '<p class="small" style="color:var(--warn)">Реквизиты не указаны: мы не сможем вам перевести деньги.</p>'}
+            <textarea id="detailsText" rows="3" placeholder="Карта или телефон СБП, банк, имя получателя">${esc(d.payout_details || '')}</textarea>
+            <button class="btn ok" data-act="details-save">Сохранить реквизиты</button>
         </div>
         <div class="grid2 mb">
-            ${tile('Сумма сделок', money(s.revenue))}
+            ${tile('Сумма оплаченных сделок', money(s.revenue))}
             ${tile('Оплаченных сделок', num(s.paid_deals))}
             ${tile('Взято лидов', num(s.taken))}
             ${tile('Конверсия', num(s.conversion) + '%')}
@@ -424,9 +443,34 @@ async function renderCabinet(tk) {
         ${num(s.pending_amount) ? `<p class="small mt" style="color:var(--warn)">Сделок без суммы: ${num(s.pending_amount)}. Укажите сумму в «Мои → Сделки».</p>` : ''}`;
 }
 
+let dealsList = [];
+async function renderDeals(tk) {
+    const head = heading('03', 'Сделки', 'Оплата<br><em>и выплаты</em>');
+    view.innerHTML = head + loading();
+    dealsList = (await api('/api/admin/deals')).deals;
+    if (tk !== token) return;
+    const btn = (d, st, label, cls = '') => `<button class="btn ${cls}" data-act="deal-set" data-id="${d.id}" data-st="${st}">${label}</button>`;
+    const cards = dealsList.map(d => {
+        const [pl, pc] = PAY[d.payment_status] || PAY.paid;
+        let actions = '';
+        if (d.payment_status === 'awaiting') actions = btn(d, 'paid', 'Клиент оплатил', 'ok') + btn(d, 'client_lost', 'Клиент слился', 'bad');
+        else if (d.payment_status === 'paid') actions = btn(d, 'payout_done', 'Выплачено менеджеру', 'ok') + btn(d, 'client_lost', 'Клиент слился', 'soft');
+        else if (d.payment_status === 'client_lost') actions = btn(d, 'awaiting', 'Вернуть в ожидание', 'soft span2');
+        return `<div class="card">
+            <div class="row top-line mb"><span class="pill ${pc}">${pl}</span><span class="muted small">${esc((d.won_at || '').slice(0, 10))}</span></div>
+            <h3>${esc(d.company)}</h3>
+            <p class="muted small" style="margin:2px 0 10px">${esc(d.manager)}${d.username ? ' · @' + esc(d.username) : ''}</p>
+            <div class="grid3">${mini('Сумма', money(d.amount))}${mini('Процент', pct(d.percent))}${mini('Менеджеру', money(d.payout), 'ok-t')}</div>
+            <div class="small mt" style="color:${d.has_details ? 'var(--ink-2)' : 'var(--bad)'}">${d.has_details ? 'Реквизиты: ' + esc(d.details) : 'Реквизиты не указаны'}</div>
+            ${actions ? `<div class="btns">${actions}</div>` : ''}
+        </div>`;
+    });
+    view.innerHTML = head + (cards.length ? `<div class="stack">${cards.join('')}</div>` : empty('Заключённых сделок пока нет'));
+}
+
 let refLink = '';
 async function renderReferral(tk) {
-    const no = me.is_admin ? '05' : '04';
+    const no = me.is_admin ? '06' : '04';
     view.innerHTML = heading(no, 'Друзья', 'Приведи друга,<br><em>получи бонус</em>') + loading();
     const r = await api('/api/referral');
     if (tk !== token) return;
@@ -459,10 +503,12 @@ async function loadAdmin() {
     const pending = admin.managers.filter(m => m.status === 'pending').length;
     const badge = $('mgrBadge');
     if (badge) { badge.textContent = pending; badge.classList.toggle('hidden', !pending); }
+    const waiting = num((admin.totals || {}).expected_deals), db = $('dealsBadge');
+    if (db) { db.textContent = waiting; db.classList.toggle('hidden', !waiting); }
 }
 
 async function renderStats(tk) {
-    const head = heading('03', 'Статистика', 'Компания<br><em>в цифрах</em>') + chips(PERIODS, period, 'period');
+    const head = heading('04', 'Статистика', 'Компания<br><em>в цифрах</em>') + chips(PERIODS, period, 'period');
     view.innerHTML = head + loading();
     await loadAdmin();
     if (tk !== token) return;
@@ -482,6 +528,7 @@ async function renderStats(tk) {
             ${tile('Оплаченных сделок', num(t.paid_deals))}
             ${tile('Конверсия', num(t.conversion) + '%')}
         </div>
+        ${num(t.expected_deals) || num(t.payout_due) ? `<div class="grid2 mb">${tile('Ждём от клиентов', money(t.expected_amount) + ' · ' + num(t.expected_deals) + ' сд.')}${tile('К выплате менеджерам', money(t.payout_due))}</div>` : ''}
         ${num(t.pending_amount) ? `<p class="small mb" style="color:var(--warn)">Сделок без суммы: ${num(t.pending_amount)}. Они не входят в выручку.</p>` : ''}
         <div class="card mb">
             <div class="sec mb">Пул свободных лидов</div>
@@ -502,7 +549,7 @@ async function renderStats(tk) {
 }
 
 async function renderManagers(tk) {
-    const head = heading('04', 'Команда', 'Менеджеры');
+    const head = heading('05', 'Команда', 'Менеджеры');
     view.innerHTML = head + loading();
     await loadAdmin();
     if (tk !== token) return;
@@ -544,21 +591,23 @@ async function renderManagers(tk) {
 // ---------- вкладки ----------
 function tabList() {
     const items = [['leads', 'Лиды'], ['mine', 'Мои']];
-    if (me.is_admin) items.push(['stats', 'Статистика'], ['mgr', 'Команда'], ['ref', 'Друзья']);
+    if (me.is_admin) items.push(['deals', 'Сделки'], ['stats', 'Итоги'], ['mgr', 'Команда'], ['ref', 'Друзья']);
     else items.push(['cab', 'Кабинет'], ['ref', 'Друзья']);
     return items;
 }
 function buildTabs() {
     $('tabs').innerHTML = tabList().map(([id, label]) =>
-        `<button class="${id === tab ? 'on' : ''}" data-act="tab" data-v="${id}"><span class="ic"><svg viewBox="0 0 24 24">${ICONS[id]}</svg></span>${label}${id === 'mgr' ? '<span id="mgrBadge" class="badge hidden"></span>' : ''}</button>`).join('');
+        `<button class="${id === tab ? 'on' : ''}" data-act="tab" data-v="${id}"><span class="ic"><svg viewBox="0 0 24 24">${ICONS[id]}</svg></span>${label}${id === 'mgr' ? '<span id="mgrBadge" class="badge hidden"></span>' : ''}${id === 'deals' ? '<span id="dealsBadge" class="badge hidden"></span>' : ''}</button>`).join('');
     if (admin) {
         const pending = admin.managers.filter(m => m.status === 'pending').length;
         const badge = $('mgrBadge');
         if (badge && pending) { badge.textContent = pending; badge.classList.remove('hidden'); }
+        const waiting = num((admin.totals || {}).expected_deals), db = $('dealsBadge');
+        if (db && waiting) { db.textContent = waiting; db.classList.remove('hidden'); }
     }
 }
 
-const RENDERERS = { leads: renderLeads, mine: renderMine, cab: renderCabinet, stats: renderStats, mgr: renderManagers, ref: renderReferral };
+const RENDERERS = { leads: renderLeads, mine: renderMine, cab: renderCabinet, deals: renderDeals, stats: renderStats, mgr: renderManagers, ref: renderReferral };
 
 async function render() {
     const tk = ++token;
@@ -735,6 +784,17 @@ document.addEventListener('click', async ev => {
                 ($('scraperBox').dataset.keys || '').split(',').filter(Boolean).forEach(k => { values[k] = $('scr-' + k).value; });
                 await api('/api/admin/scraper', { method: 'POST', body: JSON.stringify({ values }) });
                 haptic('success'); toast('Настройки парсера сохранены'); break;
+            }
+            case 'deal-set': {
+                const st = el.dataset.st;
+                if (st === 'client_lost' && !(await ask('Отметить, что клиент слился? Сделка не будет засчитана.'))) break;
+                if (st === 'payout_done' && !(await ask('Подтвердить, что деньги менеджеру переведены?'))) break;
+                await api('/api/admin/deals/status', { method: 'POST', body: JSON.stringify({ lead_id: id, payment_status: st }) });
+                haptic('success'); toast('Менеджер уведомлён'); render(); break;
+            }
+            case 'details-save': {
+                await api('/api/me/details', { method: 'POST', body: JSON.stringify({ details: $('detailsText').value }) });
+                haptic('success'); toast('Реквизиты сохранены'); break;
             }
             case 'user-percent': {
                 const value = $('pct-' + el.dataset.tg).value;
