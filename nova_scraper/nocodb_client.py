@@ -4,7 +4,7 @@ import time
 import requests
 from dotenv import load_dotenv
 
-from utils import phone_key
+from utils import norm_name, phone_keys, site_key
 
 load_dotenv(override=True)
 
@@ -23,7 +23,7 @@ def _headers():
 
 
 def get_existing_leads_keys():
-    """Названия (в нижнем регистре) и ключи телефонов всех лидов в базе — защита от дублей.
+    """Нормализованные названия (и ключи сайтов «site:...») и все ключи телефонов лидов в базе — защита от дублей.
     Возвращает (names, phone_keys, ok). ok=False, если базу прочитать не удалось."""
     if not os.getenv("NOCODB_TOKEN", "").strip():
         return set(), set(), False
@@ -32,7 +32,7 @@ def get_existing_leads_keys():
     names, phones, offset = set(), set(), 0
     try:
         while True:
-            params = {"limit": 1000, "offset": offset, "fields": "company_name,phone"}
+            params = {"limit": 1000, "offset": offset, "fields": "company_name,phone,web_url"}
             resp = requests.get(url, headers=_headers(), params=params, timeout=20)
             if resp.status_code != 200:
                 print(f"[NocoDB Cache] Код {resp.status_code}")
@@ -40,11 +40,13 @@ def get_existing_leads_keys():
             data = resp.json()
             rows = data.get("list", [])
             for r in rows:
-                if r.get("company_name"):
-                    names.add(str(r["company_name"]).strip().lower())
-                key = phone_key(r.get("phone"))
-                if key:
-                    phones.add(key)
+                name = norm_name(r.get("company_name"))
+                if name:
+                    names.add(name)
+                site = site_key(r.get("web_url"))
+                if site:
+                    names.add(site)
+                phones.update(phone_keys(r.get("phone")))
             if (data.get("pageInfo") or {}).get("isLastPage", True) or not rows:
                 break
             offset += len(rows)

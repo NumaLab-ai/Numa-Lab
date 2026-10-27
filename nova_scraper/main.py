@@ -23,7 +23,7 @@ import ai_qualifier
 import notify
 from ai_qualifier import qualify_lead_with_ai, DEEPSEEK_API_KEY
 from nocodb_client import send_lead_to_nocodb, get_existing_leads_keys, count_new_leads
-from utils import phone_key
+from utils import phone_key, phone_keys, norm_name, site_key
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(HERE, "state.json")
@@ -144,13 +144,19 @@ def run_pipeline(district=None, categories=None, dry=False, force=False):
         seen_now = set()
         for c in candidates:
             key = phone_key(c["phone"])
-            if c["company_name"].lower() in names or key in phones or key in seen_now:
+            ids = set(phone_keys(c["phone"]))
+            nm, site = norm_name(c["company_name"]), site_key(c.get("site_url"))
+            if nm:
+                ids.add("name:" + nm)
+            if site:
+                ids.add(site)
+            if (nm and nm in names) or (site and site in names) or any(k in phones for k in phone_keys(c["phone"])) or ids & seen_now:
                 n_dup += 1
-            elif key in rejected or quick_reject(c):
+            elif (key and key in rejected) or quick_reject(c):
                 n_rej += 1
             else:
                 fresh.append(c)
-                seen_now.add(key)
+                seen_now |= ids
         totals["dup"] += n_dup
         totals["rejected"] += n_rej
 
@@ -195,8 +201,10 @@ def run_pipeline(district=None, categories=None, dry=False, force=False):
                         added += 1
                         totals["added"] += 1
                         totals["tier"][lead["tier"]] = totals["tier"].get(lead["tier"], 0) + 1
-                        names.add(name.lower())
-                        phones.add(phone_key(lead["phone"]))
+                        names.add(norm_name(name))
+                        if site_key(lead.get("web_url")):
+                            names.add(site_key(lead.get("web_url")))
+                        phones.update(phone_keys(lead["phone"]))
         print(f"  Добавлено: {added}")
         save_json(REJECTED_FILE, sorted(rejected))
 
