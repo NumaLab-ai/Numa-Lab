@@ -456,6 +456,7 @@ async function renderDeals(tk) {
         if (d.payment_status === 'awaiting') actions = btn(d, 'paid', 'Клиент оплатил', 'ok') + btn(d, 'client_lost', 'Клиент слился', 'bad');
         else if (d.payment_status === 'paid') actions = btn(d, 'payout_done', 'Выплачено менеджеру', 'ok') + btn(d, 'client_lost', 'Клиент слился', 'soft');
         else if (d.payment_status === 'client_lost') actions = btn(d, 'awaiting', 'Вернуть в ожидание', 'soft span2');
+        actions += `<button class="btn soft span2" data-act="deal-delete" data-id="${d.id}">Удалить сделку</button>`;
         return `<div class="card">
             <div class="row top-line mb"><span class="pill ${pc}">${pl}</span><span class="muted small">${esc((d.won_at || '').slice(0, 10))}</span></div>
             <h3>${esc(d.company)}</h3>
@@ -580,12 +581,14 @@ async function renderManagers(tk) {
         const isAdm = m.role === 'admin' || adminSet.has((m.username || '').toLowerCase());
         const [label, cls] = isAdm ? ['Админ', 'ink'] : (USER_LABEL[m.status] || [m.status, '']);
         const b = (st, text, c = '') => `<button class="btn ${c}" data-act="user-status" data-tg="${esc(m.tg_id)}" data-st="${st}">${text}</button>`;
+        const del = `<button class="btn soft span2" data-act="user-delete" data-tg="${esc(m.tg_id)}" data-won="${num(m.won)}" data-name="${esc(m.name)}">Удалить из базы</button>`;
         let controls = '';
         if (!isAdm) {
             if (m.status === 'pending') controls = b('approved', 'Одобрить', 'ok') + b('rejected', 'Отклонить', 'soft');
             else if (m.status === 'approved') controls = b('banned', 'Забанить', 'bad span2');
             else if (m.status === 'rejected') controls = b('approved', 'Одобрить', 'ok') + b('banned', 'Забанить', 'bad');
             else controls = b('approved', 'Разбанить', 'ok span2');
+            controls += del;
         }
         const percentBox = (!isAdm && m.status === 'approved') ? `
             <div class="row mt" style="gap:8px">
@@ -804,6 +807,18 @@ document.addEventListener('click', async ev => {
                 ($('scraperBox').dataset.keys || '').split(',').filter(Boolean).forEach(k => { values[k] = $('scr-' + k).value; });
                 await api('/api/admin/scraper', { method: 'POST', body: JSON.stringify({ values }) });
                 haptic('success'); toast('Настройки парсера сохранены'); break;
+            }
+            case 'deal-delete': {
+                if (!(await ask('Удалить сделку? Лид вернётся в общий пул, сумма и выплата исчезнут из статистики. Отменить нельзя.'))) break;
+                await api('/api/admin/deals/delete', { method: 'POST', body: JSON.stringify({ lead_id: id }) });
+                haptic('success'); toast('Сделка удалена'); render(); break;
+            }
+            case 'user-delete': {
+                const won = Number(el.dataset.won) || 0;
+                if (!(await ask('Удалить сотрудника «' + el.dataset.name + '» из базы? Его лиды вернутся в пул. Отменить нельзя.'))) break;
+                const releaseDeals = won > 0 ? await ask('У него сделок: ' + won + '. Удалить и их (для тестового аккаунта)? «Отмена» — сделки останутся в статистике.') : false;
+                const r = await api('/api/admin/users/delete', { method: 'POST', body: JSON.stringify({ tg_id: Number(el.dataset.tg), release_deals: releaseDeals }) });
+                haptic('success'); toast('Удалён. Лидов в пул: ' + num(r.released) + (num(r.kept_deals) ? ', сделок оставлено: ' + num(r.kept_deals) : '')); render(); break;
             }
             case 'deal-set': {
                 const st = el.dataset.st;
