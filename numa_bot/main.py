@@ -523,6 +523,49 @@ async def api_admin_deal_status(data: DealStatus, me: dict = Depends(admin_user)
             await notify_user(int(owner), f"💸 Выплата {payout} ₽ по «{company}» отправлена. Проверьте поступление.")
     return {"status": "ok"}
 
+class DealDelete(BaseModel):
+    lead_id: int
+
+
+def _deal_delete_sync(lead_id: int):
+    lead = nocodb.get_lead(lead_id)
+    service.check_deal_reset(lead)
+    nocodb.update_lead(lead_id, dict(service.RESET_LEAD))
+    invalidate("mine:", "all_leads", "refl:")
+    return lead
+
+
+@fastapi_app.post("/api/admin/deals/delete")
+async def api_admin_deal_delete(data: DealDelete, me: dict = Depends(admin_user)):
+    lead = await run(_deal_delete_sync, data.lead_id)
+    logging.warning("Админ %s удалил сделку лида %s (%s), лид возвращён в пул", me["tg_id"], lead.get("Id"), lead.get("company_name"))
+    return {"status": "ok"}
+
+
+class UserDelete(BaseModel):
+    tg_id: int
+    release_deals: bool = False
+
+
+def _user_delete_sync(tg_id: int, actor_id, release_deals: bool):
+    rec = nocodb.get_user_by_tg_id(tg_id)
+    service.check_user_delete(rec, actor_id, ADMIN_USERNAMES)
+    release, kept = service.plan_user_leads(nocodb.get_leads_of_manager(tg_id, 5000), release_deals)
+    for l in release:
+        nocodb.update_lead(l["Id"], dict(service.RESET_LEAD))
+    nocodb.delete_user(rec["Id"])
+    invalidate("users", "mine:", "all_leads", "refl:", f"user:{tg_id}")
+    return rec, len(release), len(kept)
+
+
+@fastapi_app.post("/api/admin/users/delete")
+async def api_user_delete(data: UserDelete, me: dict = Depends(admin_user)):
+    rec, released, kept = await run(_user_delete_sync, data.tg_id, me["tg_id"], data.release_deals)
+    logging.warning("Админ %s удалил сотрудника %s (@%s): лидов в пул %s, сделок оставлено %s",
+                    me["tg_id"], data.tg_id, rec.get("username"), released, kept)
+    return {"status": "ok", "released": released, "kept_deals": kept}
+
+
 @fastapi_app.get("/api/admin/stats")
 async def api_admin_stats(period: str = "all", me: dict = Depends(admin_user)):
     period = period if period in service.PERIODS else "all"

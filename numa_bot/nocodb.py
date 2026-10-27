@@ -220,6 +220,10 @@ def set_payout_details(record_id: int, text: str):
         raise
 
 
+def delete_user(record_id: int):
+    _check(_request("DELETE", _records_url(USERS_TABLE_ID), json=[{"Id": int(record_id)}]))
+
+
 def update_lead(lead_id: int, fields: dict):
     _write("PATCH", LEADS_TABLE_ID, {"Id": int(lead_id), **fields}, OPTIONAL_LEAD_FIELDS)
     return True

@@ -142,3 +142,38 @@ def parse_details(value) -> str:
     if len(text) > MAX_DETAILS:
         raise ServiceError(400, f"Слишком длинно, максимум {MAX_DETAILS} символов")
     return text
+
+
+# Лид возвращается в общий пул: сделка и всё, что с ней связано, стирается
+RESET_LEAD = {
+    "status": "New", "assigned_manager": None, "deal_amount": None, "won_at": None, "manager_percent": None,
+    "payment_status": None, "referrer_id": None, "referral_percent": None, "last_comment": None,
+}
+
+
+def check_deal_reset(lead: dict):
+    if not lead:
+        raise ServiceError(404, "Сделка не найдена")
+    if lead.get("status") != "Won":
+        raise ServiceError(400, "Это не заключённая сделка")
+
+
+def check_user_delete(target: dict, actor_tg_id, admin_usernames: set):
+    if not target:
+        raise ServiceError(404, "Пользователь не найден")
+    username = (target.get("username") or "").lower()
+    if target.get("role") == "admin" or username in admin_usernames:
+        raise ServiceError(400, "Администратора удалить нельзя")
+    if str(target.get("telegram_id")) == str(actor_tg_id):
+        raise ServiceError(400, "Себя удалить нельзя")
+
+
+def plan_user_leads(leads: list, release_deals: bool):
+    """Какие лиды сотрудника вернуть в пул, а какие сделки оставить в истории."""
+    release, kept = [], []
+    for l in leads:
+        if l.get("status") == "Won" and not release_deals:
+            kept.append(l)
+        else:
+            release.append(l)
+    return release, kept
